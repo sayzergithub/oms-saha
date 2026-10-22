@@ -1,14 +1,16 @@
 /* OMS Saha service worker: offline, cache-first, versioned.
    VERSION is replaced by tools/publish_field.ps1 with a date-time stamp; every publish = new cache, old ones are dropped.
    All paths are relative to this file, so the page works under any sub-path (/repo-name/ on GitHub Pages, /saha/ on the PC). */
-const VERSION = '20261022-164005';
+const VERSION = '20261022-171515';
 const CACHE = 'oms-saha-' + VERSION;
 const ASSETS = ['./', './index.html', './app.js', './envelope.js', './labelparse.js', './zxing.min.js',
   './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png',
   /* V6 modules: camera settings, stock catalog, direct send (MSAL v5 + redirect bridge) */
   './camsettings.js', './catalog.js', './sendmail.js', './msal-browser.min.js',
   /* V7: cloud folder send (share sheet / File System Access / download) */
-  './cloudsend.js'];
+  './cloudsend.js',
+  /* V8: direct OneDrive (MSAL v5 above), stock list tab, serial scan logic (copied from Web/ like camsettings.js) */
+  './onedrive.js', './stockview.js', './serialscan.js'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) {

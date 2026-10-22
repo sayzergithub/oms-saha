@@ -6,8 +6,12 @@
    V7: "Buluta gönder" is the primary way (OmsCloud, cloudsend.js): share sheet -> the cloud app's "OMS Saha" folder (phones),
    File System Access write into that folder (desktop Chrome/Edge), download as the last resort. The PC watches the cloud's
    sync folder. E-mail / direct send / copy / download stay under "Diğer yollar"; their settings under Ayarlar > Gelişmiş.
+   V8: direct OneDrive (OmsDrive, onedrive.js): once connected, Gönder is one tap (no dialog), with an outbox; the share dialog stays
+   behind the "⋯" button. Stok tab (OmsStock, stockview.js) over the catalog, which now also comes from OneDrive (oms_katalog_<dev>.omsk ->
+   OmsCatalog.loadArmor). Scan mode switch Seri | Manuel: Seri = OmsSerial (serialscan.js) decides per frame, every new reel is added
+   without a form, big counter + last 3 + Bitti; Manuel = the line editor opens after every add, the camera waits until it closes.
    All modules are optional: when one is missing the page keeps its earlier behaviour.
-   Contract: reviews/V5_SAHA_SPEC.md sections 1, 3, 8, 10, 12-16. UI text is Turkish; code comments are English.
+   Contract: reviews/V5_SAHA_SPEC.md sections 1, 3, 8, 10, 12-19. UI text is Turkish; code comments are English.
    Language level: ES2017 (async/await), no optional chaining / nullish operators (older Safari / Samsung Internet). */
 (function () {
 'use strict';
@@ -16,8 +20,9 @@ var SUBJ_DEFAULT = 'oms_inv_sepet';
 var MAX_LINES = 2000, MAX_RAW = 8192, HIST_DAYS = 30, MAILTO_MAX = 60000, DUP_MS = 3000, HOLD_1D_MS = 700;
 var K = { pair: 'oms.saha.pair', user: 'oms.saha.user', loc: 'oms.saha.loc', snd: 'oms.saha.snd', vib: 'oms.saha.vib', cam: 'oms.saha.cam',
           basket: 'oms.saha.basket', hist: 'oms.saha.hist', catTry: 'oms.saha.cattry',
-          cloud: 'oms.saha.cloud', guided: 'oms.saha.guided', adv: 'oms.saha.adv', welcomed: 'oms.saha.welcomed' };
-var CAT_STALE_MS = 12 * 3600000, CAT_RETRY_MS = 30 * 60000;
+          cloud: 'oms.saha.cloud', guided: 'oms.saha.guided', adv: 'oms.saha.adv', welcomed: 'oms.saha.welcomed',
+          smode: 'oms.saha.smode', drvTry: 'oms.saha.drvtry', catEtag: 'oms.saha.catetag' };
+var CAT_STALE_MS = 12 * 3600000, CAT_RETRY_MS = 30 * 60000, DRV_CAT_STALE_MS = 30 * 60000, DRV_CAT_RETRY_MS = 10 * 60000, SER_GAP_MS = 120;
 var IS_ANDROID = /Android/i.test(navigator.userAgent || '');
 var IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 var DEMO = (function () { var m = /[?&](selftest=1|demo=([a-z]+))/.exec(location.search); return m ? (m[2] || 'selftest') : ''; })();
@@ -118,7 +123,8 @@ var S = {
   cloud: '',           /* 'onedrive' | 'gdrive' | 'icloud' | '' (unknown): only picks the guide text */
   fb: { snd: true, vib: true },
   basket: null,        /* {basket,created,lines:[{id,raw,fmt,qty,loc,note,ts}]} */
-  hist: []             /* [{basket,created,lines,devName,user,sends:[ms],via?:'cloud'|'direct',out?:'queued'|'failed'|'login',q?:ms,outErr?}] newest first */
+  smode: 'manual',     /* scan mode: 'serial' | 'manual' (spec section 19; remembered, manual by default) */
+  hist: []             /* [{basket,created,lines,devName,user,sends:[ms],via?:'cloud'|'direct'|'drive',out?:'queued'|'failed'|'login',ch?:'mail'|'drive',q?:ms,outErr?}] newest first */
 };
 var PV = new Map();    /* raw -> OmsLabel.preview() cache */
 function pv(raw, fmt) {
@@ -243,6 +249,8 @@ var FB = {
       if (kind === 'ok') { this.tone(1760, 120); if (vib) navigator.vibrate(60); }
       else if (kind === 'dup') { this.tone(880, 70); this.tone(880, 70, 0.13); if (vib) navigator.vibrate([40, 60, 40]); }
       else if (kind === 'err') { this.tone(440, 200); if (vib) navigator.vibrate([90, 60, 90]); }
+      else if (kind === 'ser') { this.tone(1760, 60); if (vib) navigator.vibrate(30); }
+      else if (kind === 'soft') { this.tone(988, 40); if (vib) navigator.vibrate(15); }
       else if (kind === 'stock') { this.tone(660, 90); this.tone(660, 90, 0.15); this.tone(660, 90, 0.3); if (vib) navigator.vibrate([120, 80, 120, 80, 120]); }
     } catch (e) { }
   }
@@ -275,7 +283,7 @@ function download(name, text) {
 
 /* ===================== views ===================== */
 var VIEW = { cur: null };
-var VIEWS = ['pair', 'who', 'scan', 'basket', 'hist', 'cam', 'set'];
+var VIEWS = ['pair', 'who', 'scan', 'basket', 'stock', 'hist', 'cam', 'set'];
 function showView(v) {
   if (VIEW.cur === v) { render(v); return; }
   if (CAM.stream || CAM.want) CAM.stop();
@@ -283,14 +291,16 @@ function showView(v) {
   VIEW.cur = v;
   VIEWS.forEach(function (x) { $('v-' + x).hidden = x !== v; });
   document.body.classList.toggle('v-pair', v === 'pair' || v === 'who');
-  [].forEach.call(document.querySelectorAll('.nav button'), function (b) { if (b.getAttribute('data-v') === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
-  var t = { pair: 'Eşleştir', who: 'Eşleşme', scan: 'Tara', basket: 'Sepet', hist: 'Geçmiş', cam: 'Kamera', set: 'Ayarlar' }[v];
+  var navV = v === 'cam' ? 'set' : v;   /* camera settings live under Ayarlar (no tab of their own since V8) */
+  [].forEach.call(document.querySelectorAll('.nav button'), function (b) { if (b.getAttribute('data-v') === navV) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+  var t = { pair: 'Eşleştir', who: 'Eşleşme', scan: 'Tara', basket: 'Sepet', stock: 'Stok', hist: 'Geçmiş', cam: 'Kamera ayarları', set: 'Ayarlar' }[v];
   document.title = DEMO === 'selftest' ? document.title : (t ? t + ' · OMS Saha' : 'OMS Saha');
   try { window.scrollTo(0, 0); } catch (e) { }
   render(v);
 }
 function render(v) {
   if (v === 'scan') renderScan(); else if (v === 'basket') renderBasket(); else if (v === 'hist') renderHist(); else if (v === 'set') renderSet(); else if (v === 'who') renderWho(); else if (v === 'cam') renderCam();
+  else if (v === 'stock') renderStock();
   renderCounts();
 }
 [].forEach.call(document.querySelectorAll('.nav button'), function (b) { b.addEventListener('click', function () { showView(b.getAttribute('data-v')); }); });
@@ -339,6 +349,7 @@ var LASTADD = null;
 function renderScan() {
   var ls = lines(), r = $('recent');
   if (document.activeElement !== $('defloc')) $('defloc').value = S.defLoc;
+  smodeUi();
   if (!ls.length) { r.hidden = true; r.innerHTML = ''; return; }
   var h = '';
   for (var i = ls.length - 1; i >= 0 && i >= ls.length - 3; i--) h += lineRow(ls[i], LASTADD === ls[i].id);
@@ -346,6 +357,25 @@ function renderScan() {
   catFill(ls.slice(-3));
 }
 $('recent').addEventListener('click', function (e) { var b = e.target.closest('button.li'); if (b) editLine(b.getAttribute('data-id')); });
+/* ----- scan mode: Seri | Manuel (spec section 19) ----- */
+function serOk() { return !!(window.OmsSerial && typeof OmsSerial.create === 'function'); }
+function smode() { return S.smode === 'serial' && serOk() ? 'serial' : 'manual'; }
+function smodeUi() {
+  var m = smode(), ok = serOk(), rs = document.querySelectorAll('input[name=smode]');
+  for (var i = 0; i < rs.length; i++) {
+    rs[i].checked = rs[i].value === m;
+    rs[i].disabled = rs[i].value === 'serial' && !ok;
+    rs[i].parentNode.classList.toggle('on', rs[i].checked);
+  }
+  $('smodehelp').textContent = !ok ? 'Seri tarama modülü (serialscan.js) yüklenemedi; internete bağlıyken sayfayı yenileyin. Şimdilik Manuel.' :
+    m === 'serial' ? 'Kamerayı makaraların önünden sırayla geçirin. Her yeni makara kendiliğinden sepete eklenir, hiçbir şey sorulmaz. Bitince Bitti\'ye basın.' :
+    'Her makara okununca miktar, konum ve not sorulur. Kaydedince tarama kaldığı yerden sürer.';
+  $('bcam').lastChild.textContent = m === 'serial' ? 'Seri taramayı başlat' : 'Kamerayı aç ve tara';
+}
+$('smode').addEventListener('change', function (e) {
+  if (e.target.name !== 'smode') return;
+  S.smode = e.target.value === 'serial' ? 'serial' : 'manual'; LS.set(K.smode, S.smode); smodeUi();
+});
 $('bgobasket').addEventListener('click', function () { showView('basket'); });
 $('defloc').addEventListener('change', function () { S.defLoc = this.value.trim(); LS.set(K.loc, S.defLoc); });
 $('defloc').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); this.blur(); } });
@@ -354,6 +384,7 @@ function manualAdd() {
   if (!v.replace(/\s/g, '')) { el.setAttribute('aria-invalid', 'true'); setMsg('cammsg', 'Önce kodu yazın veya okutun.', 'err'); el.focus(); return; }
   var r = addLine(v, '', 'manual');
   if (r.ok) { el.value = ''; el.removeAttribute('aria-invalid'); setMsg('cammsg', ''); }
+  if (r.ok && smode() === 'manual') { editLine(r.line.id, { after: true, onDone: function () { try { $('code').focus({ preventScroll: true }); } catch (e) { } } }); return; }
   el.focus();
 }
 $('badd').addEventListener('click', manualAdd);
@@ -368,7 +399,7 @@ function addLine(raw, fmt, src) {
   if (raw.length > MAX_RAW) { FB.go('err'); toast('Kod çok uzun (' + raw.length + ' karakter, en çok ' + MAX_RAW + ').', true); return { err: 'long' }; }
   var b = ensureBasket();
   for (var i = 0; i < b.lines.length; i++) if (b.lines[i].raw === raw) {
-    if (src !== 'camera') { FB.go('dup'); toast('Bu etiket zaten sepette: ' + lineInfo(b.lines[i]).title, true); }
+    if (src !== 'camera' && src !== 'serial') { FB.go('dup'); toast('Bu etiket zaten sepette: ' + lineInfo(b.lines[i]).title, true); }
     return { dup: true, line: b.lines[i] };
   }
   if (b.lines.length >= MAX_LINES) { FB.go('err'); toast('Sepet dolu (' + MAX_LINES + ' satır). Önce bu sepeti gönderin.', true); return { err: 'full' }; }
@@ -376,7 +407,7 @@ function addLine(raw, fmt, src) {
   b.lines.push(l); LASTADD = l.id;
   saveBasket();
   askPersist();
-  if (src !== 'camera') {
+  if (src !== 'camera' && src !== 'serial') {
     stockCheck(l).then(function (st) {
       var title = lineInfo(l).title, undo = { t: 'Geri al', fn: function () { removeLine(l.id, true); } };
       if (st.same) { FB.go('stock'); toast('STOKTA · aynı makara: ' + title + ' (' + stockWhere(st.same) + '). Yine de sepete eklendi.', true, undo); }
@@ -391,6 +422,7 @@ function removeLine(id, silent) {
   var ls = lines();
   for (var i = 0; i < ls.length; i++) if (ls[i].id === id) {
     var l = ls.splice(i, 1)[0], at = i;
+    SER.forget(l.raw);
     saveBasket(); render(VIEW.cur);
     if (!silent) toast('Satır silindi', false, { t: 'Geri al', fn: function () { var b = ensureBasket(); b.lines.splice(Math.min(at, b.lines.length), 0, l); saveBasket(); render(VIEW.cur); } });
     return;
@@ -413,7 +445,7 @@ document.addEventListener('keydown', function (e) {
   if (now - WEDGE.last > 120) { WEDGE.buf = ''; WEDGE.slow = 0; }
   WEDGE.last = now;
   if (e.key === 'Enter') {
-    if (WEDGE.buf.length >= 4 && WEDGE.slow <= 1) { e.preventDefault(); addLine(WEDGE.buf, '', 'wedge'); }
+    if (WEDGE.buf.length >= 4 && WEDGE.slow <= 1) { e.preventDefault(); var wr = addLine(WEDGE.buf, '', 'wedge'); if (wr.ok && smode() === 'manual') editLine(wr.line.id, { after: true, noFocus: true }); }
     WEDGE.buf = ''; return;
   }
   if (e.key && e.key.length === 1) { if (WEDGE.buf && now - WEDGE.prev > 60) WEDGE.slow++; WEDGE.buf += e.key; WEDGE.prev = now; }
@@ -421,7 +453,10 @@ document.addEventListener('keydown', function (e) {
 
 /* ----- basket view ----- */
 function renderBasket() {
-  var ls = lines(), n = ls.length;
+  var ls = lines(), n = ls.length, on = driveOn();
+  if (!DRV.busy) $('bsendtx').textContent = on ? 'OneDrive\'a gönder' : 'Gönder';
+  $('bsend').querySelector('use').setAttribute('href', on ? '#i-cloudup' : '#i-send');
+  $('bsendmore').hidden = !on;
   $('bempty').hidden = n > 0; $('blist').hidden = n === 0; $('sendbar').hidden = n === 0; $('bdz').hidden = n === 0; $('bhint').hidden = n === 0;
   $('bcnt').textContent = n ? fmtQty(n) + ' satır' : '';
   $('bcnt').hidden = !n;
@@ -437,13 +472,20 @@ $('bclear').addEventListener('click', async function () {
   if (!(await ask('Sepet boşaltılsın mı?', 'Sepetteki <b>' + fmtQty(n) + ' satır</b> silinecek. Bu işlem geri alınamaz.', 'Sepeti boşalt', true))) return;
   S.basket = null; await saveBasket(true); render(VIEW.cur); toast('Sepet boşaltıldı');
 });
-$('bsend').addEventListener('click', function () { if (S.basket && S.basket.lines.length) startSend(S.basket, false); });
+$('bsend').addEventListener('click', function () {
+  if (!S.basket || !S.basket.lines.length) return;
+  if (driveOn()) driveSend(S.basket, false, this); else startSend(S.basket, false);
+});
+$('bsendmore').addEventListener('click', function () { if (S.basket && S.basket.lines.length) startSend(S.basket, false); });
 
 /* ----- line editor ----- */
-function editLine(id) {
+/* opt (Manuel mode, opened right after an add): {after, onDone (any close), noFocus (keyboard-wedge source)} */
+function editLine(id, opt) {
+  opt = opt || {};
   var ls = lines(), l = null;
   for (var i = 0; i < ls.length; i++) if (ls[i].id === id) l = ls[i];
-  if (!l) return;
+  if (!l) { if (opt.onDone) opt.onDone(); return; }
+  var camWait = !!(opt.after && CAM.stream && CAM.mode === 'scan');
   var inf = lineInfo(l), p = inf.p, kv = '';
   [['Üretici', p.mfr], ['<span lang="en">MPN</span>', p.mpn], ['Tedarikçi kodu', p.supplierPn], ['Tedarikçi', p.supplier], ['Lot', p.lot], ['Tarih kodu', p.dc],
    ['Etiketteki miktar', p.qty != null && p.qty !== '' ? fmtQty(p.qty) : null], ['Kod türü', l.fmt ? fmtName(l.fmt) : null]].forEach(function (r) {
@@ -451,21 +493,26 @@ function editLine(id) {
   });
   if (inf.stk && inf.stk.mpn && !inf.stk.same) kv += '<div class="kv"><dt>Stokta</dt><dd>' + esc(stockWhereMpn(inf.stk.mpn)) + '</dd></div>';
   var ph = p.qty != null && p.qty !== '' ? 'Boş = etiketten (' + fmtQty(p.qty) + ')' : 'Etikette miktar yok: girin';
-  var h = (inf.stk && inf.stk.same ? '<div class="note warn" style="margin-bottom:12px">' + ico('i-warn') + '<div><b>Bu makara zaten stokta</b> (' + esc(stockWhere(inf.stk.same)) +
-      '). Aynı etiket PC\'de kayıtlı; gönderilirse PC bunu "aynı makara" durumu olarak işaretler. Yeni bir makara değilse satırı silin.</div></div>' : '') +
-    (kv ? '<dl class="kvl">' + kv + '</dl>' : '<div class="note warn">' + ico('i-warn') + '<div>Bu kod sayfada önizlenemedi. PC yine de çözmeyi dener; gerekirse miktarı girin.</div></div>') +
-    '<p class="small" style="margin:8px 0 0">Önizlemedir; kesin çözümleme PC\'de yapılır. Eklenme: ' + esc(fmtTime(Date.parse(l.ts) || Date.now())) + '</p>' +
-    '<div class="fld" style="margin-top:16px"><label for="e_qty">Miktar</label>' +
-    '<input id="e_qty" type="number" inputmode="numeric" pattern="[0-9]*" min="1" step="1" enterkeyhint="next" placeholder="' + esc(ph) + '" value="' + (l.qty != null ? esc(l.qty) : '') + '">' +
+  var warn = (inf.stk && inf.stk.same ? '<div class="note warn" style="margin-bottom:12px">' + ico('i-warn') + '<div><b>Bu makara zaten stokta</b> (' + esc(stockWhere(inf.stk.same)) +
+      '). Aynı etiket PC\'de kayıtlı; gönderilirse PC bunu "aynı makara" durumu olarak işaretler. Yeni bir makara değilse satırı silin.</div></div>' : '');
+  var info = (kv ? '<dl class="kvl">' + kv + '</dl>' : '<div class="note warn">' + ico('i-warn') + '<div>Bu kod sayfada önizlenemedi. PC yine de çözmeyi dener; gerekirse miktarı girin.</div></div>') +
+    '<p class="small" style="margin:8px 0 0">Önizlemedir; kesin çözümleme PC\'de yapılır. Eklenme: ' + esc(fmtTime(Date.parse(l.ts) || Date.now())) + '</p>';
+  var raw = '<div class="lbl" style="margin-top:16px">Ham kod</div><div class="rawbox">' + showRaw(l.raw) + '</div>';
+  var flds = '<div class="fld" style="margin-top:16px"><label for="e_qty">Miktar</label>' +
+    '<input id="e_qty" type="number" inputmode="numeric" pattern="[0-9]*" min="1" step="1" enterkeyhint="next" placeholder="' + esc(ph) + '" value="' + (l.qty != null ? esc(l.qty) : '') + '"' +
+      (opt.after && !opt.noFocus && !(p.qty != null && p.qty !== '') ? ' autofocus' : '') + '>' +
     '<p class="help">Kısmen kullanılmış makarada kalan miktarı yazın; etiketteki miktarın yerine geçer.</p></div>' +
     '<div class="fld"><label for="e_loc">Konum</label><input id="e_loc" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" maxlength="64" enterkeyhint="next" value="' + esc(l.loc) + '"></div>' +
-    '<div class="fld"><label for="e_note">Not</label><input id="e_note" type="text" autocomplete="off" maxlength="200" enterkeyhint="done" value="' + esc(l.note) + '"></div>' +
-    '<div class="lbl" style="margin-top:16px">Ham kod</div><div class="rawbox">' + showRaw(l.raw) + '</div>' +
-    '<div id="e_msg" class="msg" role="status" aria-live="polite"></div>' +
+    '<div class="fld"><label for="e_note">Not</label><input id="e_note" type="text" autocomplete="off" maxlength="200" enterkeyhint="done" value="' + esc(l.note) + '"></div>';
+  var acts = '<div id="e_msg" class="msg" role="status" aria-live="polite"></div>' +
     '<div class="acts r"><button type="button" class="btn btn-sec" id="e_copy">' + ico('i-copy') + 'Kodu kopyala</button>' +
-    '<button type="button" class="btn btn-sec" id="e_cancel">Kapat</button><button type="button" class="btn btn-pri" id="e_save">' + ico('i-save') + 'Kaydet</button></div>' +
-    '<div class="danger-row"><button type="button" class="btn btn-danger-ghost" id="e_del">' + ico('i-del') + 'Satırı sil</button></div>';
-  openModal(inf.title, h);
+    '<button type="button" class="btn btn-sec" id="e_cancel">Kapat</button><button type="button" class="btn btn-pri" id="e_save">' + ico('i-save') + (camWait ? 'Kaydet, taramaya dön' : 'Kaydet') + '</button></div>';
+  var del = '<div class="danger-row"><button type="button" class="btn btn-danger-ghost" id="e_del">' + ico('i-del') + 'Satırı sil</button></div>';
+  /* right after an add (Manuel): the three fields and Kaydet first, label details folded below */
+  var h = opt.after ? '<div class="note ok" style="margin-bottom:12px">' + ico('i-check') + '<div><b>Sepete eklendi.</b> ' + (camWait ? 'Bilgileri girin; kaydedince ya da kapatınca tarama sürer.' : 'Gerekirse miktar, konum ve not girin.') + '</div></div>' + warn + flds + acts +
+      '<details class="more"><summary>' + ico('i-info') + 'Etiket bilgileri' + ico('i-chev', 'chev') + '</summary><div class="inner">' + info + raw + '</div></details>' + del :
+    warn + info + flds + raw + acts + del;
+  openModal(inf.title, h, opt.onDone || null);
   function save() {
     var q = $('e_qty').value.trim(), qn = null;
     if (q !== '') {
@@ -496,7 +543,7 @@ function renderHist() {
     if (n > 200) items += '<li>… ve ' + fmtQty(n - 200) + ' satır daha</li>';
     var ns = x.sends.length, st = histState(x);
     h += '<div class="card hcard"><div class="hh"><div><b>' + esc(fmtTime(last)) + '</b><span class="small">' + fmtQty(n) + ' satır · ' +
-      (ns > 1 ? ns + ' kez gönderildi' : ns ? 'gönderildi' : 'henüz gönderilmedi') + (x.via === 'direct' && ns ? ' (doğrudan)' : '') + (x.user ? ' · ' + esc(x.user) : '') + '</span></div>' +
+      (ns > 1 ? ns + ' kez gönderildi' : ns ? 'gönderildi' : 'henüz gönderilmedi') + (x.via === 'direct' && ns ? ' (doğrudan)' : x.via === 'drive' && ns ? ' (OneDrive)' : '') + (x.user ? ' · ' + esc(x.user) : '') + '</span></div>' +
       st.tag + '</div>' + st.more +
       '<details><summary>Satırları göster' + ico('i-chev') + '</summary><ol>' + items + '</ol></details>' +
       '<div class="acts"><button type="button" class="btn btn-sec" data-a="re" data-i="' + i + '">' + ico('i-send') + 'Yeniden gönder</button>' +
@@ -508,12 +555,13 @@ $('hlist').addEventListener('click', async function (e) {
   var b = e.target.closest('button[data-a]'); if (!b) return;
   var x = S.hist[+b.getAttribute('data-i')]; if (!x) return;
   var act = b.getAttribute('data-a');
-  if (act === 're') { startSend(x, true); return; }
-  if (act === 'flush') { outboxFlush(b); return; }
+  if (act === 're') { if (driveOn()) driveSend(x, true, b); else startSend(x, true); return; }
+  if (act === 'flush') { if (x.ch === 'drive') driveFlush(b); else outboxFlush(b); return; }
+  if (act === 'dlogin') { driveSignIn(b).then(function (ok) { if (ok) driveFlush(null, true); }); return; }
   if (act === 'login') { mailSignIn(b).then(function (ok) { if (ok) outboxFlush(null); }); return; }
   if (!(await ask('Geçmişten silinsin mi?', esc(fmtTime(lastAt(x))) + ' tarihli ' + fmtQty(x.lines.length) + ' satırlık sepet bu cihazdan silinecek. ' +
     (x.out ? '<b>Giden kutusundaki gönderimi de iptal edilir.</b> ' : '') + 'PC\'deki kayıtlar etkilenmez.', 'Sil', true))) return;
-  if (x.out) outboxRemove(x.basket);
+  if (x.out) { if (x.ch === 'drive') driveRemove(x.basket); else outboxRemove(x.basket); }
   var k = S.hist.indexOf(x); if (k >= 0) S.hist.splice(k, 1);
   await saveHist(); renderHist(); toast('Silindi');
 });
@@ -630,7 +678,12 @@ function renderWho() {
   $('whoinfo').textContent = 'Bu cihaz "' + (p.name || p.dev || '') + '" adıyla ' + (p.pc ? p.pc + ' bilgisayarına' : 'stok bilgisayarına') + ' bağlandı.';
   if (document.activeElement !== $('wname')) $('wname').value = S.user;
   cloudSeg('wcloud', 'wc');
-  setMsg('wmsg', '');
+  var dok = driveOk(), don = driveOn();
+  $('whodrv').hidden = !dok;
+  if (dok) { $('bwdrvtx').textContent = don ? 'OneDrive\'a bağlı ✓' : 'OneDrive\'a bağlan'; $('bwdrv').disabled = don; }
+  var g3 = document.querySelector('#v-who .gsteps li:nth-child(3) .gt');
+  if (g3) g3.textContent = don ? 'Sepet sekmesinde "OneDrive\'a gönder"e basın. Dosya PC\'ye kendiliğinden gider.' : (g3.getAttribute('data-t') || g3.textContent);
+  if (g3 && !g3.getAttribute('data-t') && !don) g3.setAttribute('data-t', g3.textContent);
 }
 $('fwho').addEventListener('submit', function (e) {
   e.preventDefault();
@@ -653,12 +706,8 @@ function pairFromHash() {
 window.addEventListener('hashchange', pairFromHash);
 
 /* ===================== send ===================== */
-async function startSend(b, fromHist) {
-  if (!S.pair) { toast('Önce cihazı eşleştirin.', true); showView('pair'); return; }
-  var er = envReady(); if (er) { toast(er, true); return; }
-  var sendBtn = $('bsend'); busy(sendBtn, true);
-  var ctx;
-  try {
+/* basket -> sealed armor + mail body (both send paths) */
+async function sealCtx(b, fromHist) {
     var now = Date.now();
     var obj = {
       v: 1, type: 'basket', basket: b.basket, dev: S.pair.dev, devName: S.pair.name || '', user: S.user || '', created: b.created, sent: iso(now),
@@ -670,8 +719,15 @@ async function startSend(b, fromHist) {
     var wrapped = String(OmsEnvelope.wrapForMail(armor)).replace(/\r?\n/g, '\r\n');
     var body = 'OMS saha sepeti: ' + b.lines.length + ' satır, ' + (S.pair.name || S.pair.dev) + (S.user ? ' / ' + S.user : '') + ', ' + fmtTime(now) + '\r\n' +
       'Bu e-postayı değiştirmeden gönderin. Konu satırı "' + subj() + '" kalmalı.\r\n\r\n' + wrapped + '\r\n';
-    ctx = { b: b, hist: fromHist, armor: armor, body: body, name: 'oms_sepet_' + stamp(now) + '.omsb', date: new Date(now), used: false, pv: '', n: b.lines.length };
-  } catch (e) {
+    return { b: b, hist: fromHist, armor: armor, body: body, name: 'oms_sepet_' + stamp(now) + '.omsb', date: new Date(now), used: false, pv: '', n: b.lines.length };
+}
+async function startSend(b, fromHist) {
+  if (!S.pair) { toast('Önce cihazı eşleştirin.', true); showView('pair'); return; }
+  var er = envReady(); if (er) { toast(er, true); return; }
+  var sendBtn = $('bsend'); busy(sendBtn, true);
+  var ctx;
+  try { ctx = await sealCtx(b, fromHist); }
+  catch (e) {
     busy(sendBtn, false);
     toast('Sepet hazırlanamadı: ' + ((e && e.message) || e), true); return;
   }
@@ -808,6 +864,8 @@ function renderSendModal(ctx) {
   var h = '<p>' + (ctx.hist ? 'Bu sepet yeniden gönderilecek: ' : 'Sepet hazır: ') + fmtQty(ctx.n) + ' satır, şifreli ve imzalı.</p>';
   h += cloudBtn(ctx);
   h += '<div class="howto"><button type="button" class="btn btn-ghost" id="s_how">' + ico('i-help') + 'Nasıl gönderilir?</button></div>';
+  if (driveOk() && !driveOn() && !ctx.used) h += '<div class="note info" style="margin-top:8px">' + ico('i-cloudlink') + '<div><b>Daha kolayı:</b> OneDrive\'a bir kez bağlanın; sepetler paylaşma menüsü olmadan tek dokunuşla gider.' +
+    '<div class="acts row-keep"><button type="button" class="btn btn-sec" id="s_drv">' + ico('i-cloudlink') + 'OneDrive\'a bağlan ve gönder</button></div><div id="s_drvmsg" class="msg" role="status" aria-live="polite"></div></div></div>';
   h += '<div id="s_res" class="sres"></div>';
   /* confirmation after share / download / mail: the page cannot see where the file went */
   var cq = ctx.pv === 'cloud' ? (ctx.dl ? 'Dosya indirildi (' + esc(ctx.dl) + '). Onu OMS Saha klasörüne taşıdıysanız Evet\'e basın' : 'Dosyayı OMS Saha klasörüne kaydettiyseniz Evet\'e basın')
@@ -843,6 +901,10 @@ function renderSendModal(ctx) {
     runCloud(ctx);
   });
   $('s_how').addEventListener('click', function () { openGuide(ctx); });
+  var sd = $('s_drv');
+  if (sd) sd.addEventListener('click', function () {
+    driveSignIn(sd, 's_drvmsg').then(function (ok) { if (ok && SEND.ctx === ctx) { closeModal(); driveSend(ctx.b, ctx.hist, null); } });
+  });
   $('s_more').addEventListener('toggle', function () { ctx.moreOpen = this.open; });
   var m = $('s_mail'); if (m) m.addEventListener('click', function () { setTimeout(function () { used(''); }, 400); });
   var dv = $('s_direct'); if (dv) dv.addEventListener('click', function () { directSend(ctx, to, dv); });
@@ -928,6 +990,7 @@ function cloudDone(ctx, r) {
 
 /* ----- settings: cloud card ----- */
 function renderCloudCard() {
+  renderDrive();
   cloudSeg('scloud', 'sc');
   var fo = folderOk(); $('c_folder').hidden = !fo;
   if (!fo) return;
@@ -953,8 +1016,9 @@ $('bfldforget').addEventListener('click', function () {
 });
 $('bhowto').addEventListener('click', function () { openGuide(null); });
 /* via: '' (mail app / copy / download, user confirmed), 'cloud' (cloud folder: written, or shared/downloaded + user confirmed),
-   'direct' (Graph 202), 'queued' (in the OmsMail outbox, not sent yet) */
-function markSent(ctx, via, err) {
+   'direct' (Graph 202), 'drive' (OneDrive PUT 200/201), 'queued' (in an outbox, not sent yet; ch 'mail' = OmsMail, 'drive' = OmsDrive,
+   st = 'queued' | 'login') */
+function markSent(ctx, via, err, ch, st) {
   var now = Date.now(), x;
   if (ctx.hist) {
     x = ctx.b;
@@ -965,16 +1029,20 @@ function markSent(ctx, via, err) {
     if (S.basket === ctx.b) S.basket = null;
     saveBasket(true);
   }
-  if (via === 'queued') { x.out = 'queued'; x.q = now; x.outErr = err || ''; }
-  else {
+  if (via === 'queued') {
+    if (x.out && x.ch !== (ch || 'mail')) { if (x.ch === 'drive') driveRemove(x.basket); else outboxRemove(x.basket); }
+    x.out = st || 'queued'; x.ch = ch || 'mail'; x.q = now; x.outErr = err || '';
+  } else {
     x.sends.push(now); x.via = via || 'mail';
-    if (x.out) { outboxRemove(x.basket); delete x.out; delete x.outErr; }
+    if (x.out) { if (x.ch === 'drive') { if (via !== 'drive') driveRemove(x.basket); } else outboxRemove(x.basket); delete x.out; delete x.outErr; delete x.ch; }
   }
   pruneHist(); saveHist();
   if (SEND.ctx === ctx) closeModal();
   render(VIEW.cur);
   var go = { t: 'Geçmiş', fn: function () { showView('hist'); } };
-  if (via === 'queued') toast('Giden kutusunda: internet gelince kendiliğinden gider.', false, go);
+  if (via === 'queued' && st === 'login') toast('Sepet giden kutusunda. OneDrive\'a yeniden bağlanın; sonra kendiliğinden gider.', true, { t: 'Bağlan', fn: function () { driveSignIn(null).then(function (ok) { if (ok) driveFlush(null, true); }); } });
+  else if (via === 'queued') toast((ch === 'drive' && err ? err + ' ' : '') + 'Sepet giden kutusunda: internet gelince kendiliğinden gider.', false, go);
+  else if (via === 'drive') toast(ctx.hist ? 'OneDrive\'a yeniden gönderildi ✓' : 'OneDrive\'a gönderildi ✓ PC birkaç dakika içinde işler.', false, ctx.hist ? null : go);
   else if (via === 'cloud') toast(ctx.hist ? 'Buluta yeniden gönderildi ✓' : 'Buluta gönderildi ✓ PC birkaç dakika içinde işler.', false, ctx.hist ? null : go);
   else if (via === 'direct') toast('Gönderildi ✓ PC birkaç dakika içinde işler.', false, ctx.hist ? null : go);
   else toast(ctx.hist ? 'Yeniden gönderim kaydedildi' : 'Sepet Geçmiş\'e taşındı', false, ctx.hist ? null : go);
@@ -1114,6 +1182,8 @@ var CAM = {
     if (on) { $(this.mode === 'pair' ? 'pairstage' : cfg ? 'camstage' : 'scanstage').appendChild(st); st.classList.toggle('qr', this.mode === 'pair'); st.classList.toggle('cfg', cfg); }
     st.hidden = !on; document.body.classList.toggle('scanning', on && !cfg); document.body.classList.toggle('camcfg', on && cfg);
     $('bstagebasket').hidden = this.mode === 'pair';
+    var ser = on && this.serial;
+    st.classList.toggle('serial', ser); $('sercnt').hidden = !ser; $('bdone').hidden = !ser; $('bmanual').hidden = ser; if (!ser) $('serlist').hidden = true;
     $('cfghint').hidden = !(on && cfg && hasCam());
     $('bmanual').querySelector('span').textContent = this.mode === 'pair' ? 'Kodu yapıştır' : 'Elle';
     if (!on) { $('cpause').hidden = true; $('chelp').hidden = true; }
@@ -1126,6 +1196,7 @@ var CAM = {
     if (this.stream) { this.resume(); return; }
     FB.unlock(); hideToast();
     var btn = $(this.btnId()); busy(btn, true); setMsg(mid, 'Kamera açılıyor…');
+    this.serial = this.mode === 'scan' && smode() === 'serial';
     var decP = this.mode === 'cfg' ? Promise.resolve('none') : DEC.init().catch(function (e) { return e; });
     try { await this.open(LS.get(K.cam)); }
     catch (e) {
@@ -1143,7 +1214,8 @@ var CAM = {
     LAYER.push('cam', function () { CAM.stop(false, true); });
     this.caps(); this.devices(); setMsg(mid, '');
     if (this.mode === 'cfg') { this.state('Önizleme · ayarlar canlı uygulanır'); renderCamPanel(); try { $('stage').scrollIntoView({ block: 'start' }); } catch (e) { } return; }
-    this.state(this.mode === 'pair' ? 'PC ekranındaki QR kodu çerçeveye alın' : 'Etiketi çerçeveye alın');
+    if (this.serial) SER.begin();
+    this.state(this.mode === 'pair' ? 'PC ekranındaki QR kodu çerçeveye alın' : this.serial ? 'Makaraları sırayla çerçeveden geçirin' : 'Etiketi çerçeveye alın');
     this.armIdle(); this.lock(true); this.schedule(300);
     try { $('stage').scrollIntoView({ block: 'start' }); } catch (e) { }
   },
@@ -1204,6 +1276,7 @@ var CAM = {
     var vid = $('cvid'); try { vid.pause(); } catch (e) { } vid.srcObject = null;
   },
   stop: function (keepWant, fromBack) {
+    if (this.serial && !keepWant) SER.end(false);
     this.release(); this.paused = false; this.lock(false); this.hold = null;
     if (!keepWant) this.want = false;
     if (!fromBack) LAYER.pop('cam'); else LAYER.stack = LAYER.stack.filter(function (x) { return x.n !== 'cam'; });
@@ -1236,7 +1309,7 @@ var CAM = {
   checkIdle: function () {
     var d = Date.now() - this.idle.t0;
     if (d > 60000) { this.running = false; clearTimeout(this.timer); $('chelp').hidden = true; $('cpause').hidden = false; this.lock(false); this.state('Tarama duraklatıldı'); return true; }
-    if (d > 12000 && this.idle.hint < 2) { this.idle.hint = 2; this.state('Okunamıyor mu?', 'warn'); $('chelp').hidden = false; }
+    if (d > 12000 && this.idle.hint < 2) { this.idle.hint = 2; this.state(this.serial ? 'Sıradaki makarayı çerçeveye alın' : 'Okunamıyor mu?', this.serial ? '' : 'warn'); $('chelp').hidden = !!this.serial; }
     else if (d > 6000 && this.idle.hint < 1) { this.idle.hint = 1; this.state('Yaklaştırın, etiketi düz tutun'); if (!$('btorch').hidden) $('btorch').classList.add('nudge'); }
     return false;
   },
@@ -1282,7 +1355,7 @@ var CAM = {
         /* scan: aim-box crop, alternating near (fast) / far (small modules), every 4th frame the whole frame;
            pair: whole frame (the QR is often larger than the aim box) */
         var g = this.mode === 'pair' ? this.grab(this.k % 2 ? 1280 : 960, true) : this.grab(this.k % 2 ? 1280 : 800, this.k % 4 === 3);
-        var set = this.mode === 'pair' ? 'qr' : (this.hold ? 'd2' : 'all');
+        var set = this.mode === 'pair' ? 'qr' : (this.hold || (this.serial && SER.waiting() && this.k % 2)) ? 'd2' : 'all';
         p = g ? DEC.decodeLum(g.lum, g.w, g.h, set).then(function (r) { return r ? [r] : []; }) : Promise.resolve([]);
       } else p = DEC.init().then(function () { return []; });
     } catch (e) { p = Promise.reject(e); }
@@ -1303,6 +1376,7 @@ var CAM = {
       this.schedule(gap); return;
     }
     if (hits.length) this.armIdle();
+    if (this.serial) { this.serialHits(hits, now, gap); return; }
     var prim = pickPrimary(hits);
     if (prim && !is2D(prim.format)) {
       /* only a 1D code: wait briefly for the label's 2D code before accepting it */
@@ -1323,6 +1397,8 @@ var CAM = {
     this.last = { raw: raw, t: now };
     if (same) { this.schedule(250); return; }   /* same code within 3 s: not counted again */
     var r = addLine(raw, hit.format, 'camera'), self = this;
+    var wait = r.ok && smode() === 'manual';
+    if (wait) { this.paused = true; clearTimeout(this.timer); }   /* the editor opens once the stock lookup is done */
     if (r.ok) {
       /* scanning stays paused until the (fast, local) stock lookup is done, so the feedback is one clear signal */
       stockCheck(r.line).then(function (st) {
@@ -1330,20 +1406,113 @@ var CAM = {
         if (st.same) {
           FB.go('stock'); self.flash('dup');
           self.state('STOKTA · aynı makara · ' + stockWhere(st.same), 'warn');
-          render(VIEW.cur); if (self.running && !self.paused) self.schedule(1600);
+          render(VIEW.cur); if (self.running && !self.paused && !wait) self.schedule(1600);
         } else {
           FB.go('ok'); self.flash('hit');
           self.state('Eklendi · ' + title + (st.mpn ? ' · ' + stockLine(st.mpn) : ' · sepette ' + lines().length), 'ok');
-          if (self.running && !self.paused) self.schedule(900);
+          if (self.running && !self.paused && !wait) self.schedule(900);
         }
+        if (wait) self.editAfter(r.line);
       });
     } else if (r.dup) {
       FB.go('dup'); this.flash('dup');
       this.state('Zaten sepette · ' + lineInfo(r.line).title, 'warn');
       this.schedule(600);
     } else { this.state(r.err === 'full' ? 'Sepet dolu' : 'Kod eklenemedi', 'err'); this.schedule(1200); }
+  },
+  /* Manuel: line editor over the paused camera; any close (save / Kapat / back / delete) resumes scanning */
+  editAfter: function (line) {
+    var self = this;
+    if (!this.stream) { this.paused = false; return; }
+    editLine(line.id, { after: true, onDone: function () {
+      if (!self.stream || self.mode !== 'scan') return;
+      self.paused = false; self.last = { raw: line.raw, t: Date.now() };
+      self.armIdle(); self.state('Sıradaki etiketi çerçeveye alın'); self.schedule(500);
+    } });
+  },
+  /* Seri: OmsSerial decides on every frame (also empty ones, so a waiting 1D-only reel gets committed) */
+  serialHits: function (hits, now, gap) {
+    var d = SER.offer(hits);
+    if (d && d.action === 'add' && d.hit) { if (SER.add(d.hit, now)) { this.schedule(SER_GAP_MS); return; } this.schedule(1200); return; }
+    if (d && d.action === 'ignore' && d.reason === 'inBasket' && now - SER.dupT > 2500) {
+      SER.dupT = now; FB.go('soft'); this.flash('dup');
+      var ex = null, raw = d.hit ? String(d.hit.text || d.hit.rawValue || '') : '';
+      lines().forEach(function (l) { if (l.raw === raw.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '')) ex = l; });
+      this.state('Zaten sepette' + (ex ? ' · ' + lineInfo(ex).title : ''), 'warn');
+    } else if (d && d.action === 'wait') this.state('Okunuyor…');
+    this.schedule(gap);
   }
 };
+/* ===================== V8: serial scan session (OmsSerial, serialscan.js; spec section 19) ===================== */
+var SER = {
+  s: null, n: 0, recent: [], dupT: 0,
+  begin: function () {
+    var self = this; this.n = 0; this.recent = []; this.dupT = 0; this.s = null;
+    try {
+      this.s = OmsSerial.create({ inBasket: function (raw) { return self.has(raw); }, now: function () { return Date.now(); } });
+    } catch (e) { this.s = null; }
+    this.paint();
+  },
+  has: function (raw) {
+    raw = String(raw == null ? '' : raw).replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
+    var ls = lines(); for (var i = 0; i < ls.length; i++) if (ls[i].raw === raw) return true;
+    return false;
+  },
+  waiting: function () { try { return !!(this.s && this.s.waiting); } catch (e) { return false; } },
+  forget: function (raw) { try { if (this.s && this.s.forget) this.s.forget(raw); } catch (e) { } },
+  offer: function (hits) {
+    if (!this.s) {   /* module failed: plain behaviour, the first code of a frame that is not in the basket yet */
+      var h = pickPrimary(hits); return h && !this.has(h.text) ? { action: 'add', hit: h, reason: 'fallback' } : null;
+    }
+    try { return this.s.offer(hits); } catch (e) { return null; }
+  },
+  count: function () { var c = 0; try { c = this.s ? +this.s.count : 0; } catch (e) { c = 0; } return Math.max(c || 0, this.n); },
+  /* one decided reel -> basket line, short beep, counter + last 3; stock lookup marks the row afterwards */
+  add: function (hit, now) {
+    var raw = String(hit.text != null ? hit.text : hit.rawValue || ''), fmt = hit.format || '';
+    var r = addLine(raw, fmt, 'serial');
+    if (!r.ok) {
+      if (r.dup) return true;
+      FB.go('err'); CAM.state(r.err === 'full' ? 'Sepet dolu (' + MAX_LINES + ' satır): önce bu sepeti gönderin' : 'Kod eklenemedi', 'err'); return false;
+    }
+    this.n++;
+    var inf = lineInfo(r.line), row = { id: r.line.id, t: inf.title, q: inf.qty ? inf.qty.t : '', w: false };
+    this.recent.unshift(row); if (this.recent.length > 3) this.recent.length = 3;
+    FB.go('ser'); CAM.flash('hit');
+    CAM.state('Eklendi · ' + inf.title, 'ok');
+    this.paint();
+    var self = this;
+    stockCheck(r.line).then(function (st) {
+      if (!st.same) return;
+      row.w = true; row.q = 'STOKTA · ' + stockWhere(st.same); self.paint();
+      if (CAM.serial && CAM.stream) { FB.go('dup'); CAM.state('STOKTA · aynı makara · ' + inf.title, 'warn'); }
+    });
+    return true;
+  },
+  paint: function () {
+    var c = this.count();
+    $('sercntn').textContent = fmtQty(c);
+    $('sercnt').setAttribute('aria-label', c + ' makara eklendi');
+    var ul = $('serlist');
+    ul.innerHTML = this.recent.map(function (x) {
+      return '<li' + (x.w ? ' class="w"' : '') + '>' + ico(x.w ? 'i-warn' : 'i-check') + '<span class="t">' + esc(x.t) + '</span>' + (x.q ? '<span class="q">' + esc(x.q) + '</span>' : '') + '</li>';
+    }).join('');
+    ul.hidden = !this.recent.length || !CAM.serial;
+  },
+  /* Bitti / camera closed: commit what the session still holds (a waiting 1D-only reel), then summary */
+  end: function (toBasket) {
+    if (!this.s && !this.n) { CAM.serial = false; return; }
+    var self = this, out = [];
+    try { if (this.s && this.s.flush) out = this.s.flush() || []; } catch (e) { out = []; }
+    out.forEach(function (d) { if (d && d.action === 'add' && d.hit) self.add(d.hit, Date.now()); });
+    var n = this.count();
+    try { if (this.s && this.s.reset) this.s.reset(); } catch (e) { }
+    this.s = null; this.recent = []; this.n = 0; CAM.serial = false;
+    if (toBasket) showView('basket');
+    toast(n ? fmtQty(n) + ' makara sepete eklendi' : 'Yeni makara eklenmedi', false, n && !toBasket ? { t: 'Sepete git', fn: function () { showView('basket'); } } : null);
+  }
+};
+$('bdone').addEventListener('click', function () { SER.end(true); CAM.stop(); });
 function buildZoom(c, cur) {
   var box = $('zseg');
   if (!(c && c.zoom && c.zoom.max > c.zoom.min)) { box.hidden = true; box.innerHTML = ''; return; }
@@ -1422,7 +1591,8 @@ $('ph').addEventListener('change', async function () {
     var prim = pickPrimary(hits);
     if (!prim) { FB.go('err'); setMsg(mid, 'Kod okunamadı. Etiketi yakından, düz ve ışıklı çekin ya da kodu elle yazın.', 'err'); return; }
     setMsg(mid, 'Okundu (' + fmtName(prim.format) + ')', 'ok');
-    addLine(prim.text, prim.format, 'photo');
+    var pr = addLine(prim.text, prim.format, 'photo');
+    if (pr.ok && smode() === 'manual') editLine(pr.line.id, { after: true });
   } catch (e) { setMsg(mid, 'Çözücü hatası: ' + ((e && e.message) || e), 'err'); }
   finally { busy(btn, false); }
 });
@@ -1446,6 +1616,8 @@ function renderCamPanel() {
 }
 function dropCamPanel() { if (PANEL) { try { PANEL.destroy(); } catch (e) { } PANEL = null; } $('campanel').innerHTML = ''; }
 $('bcfgcam').addEventListener('click', function () { CAM.start('cfg'); });
+$('bgocam').addEventListener('click', function () { showView('cam'); });
+$('bcamback').addEventListener('click', function () { showView('set'); });
 $('bcamset').addEventListener('click', function () { showView('cam'); CAM.start('cfg'); });
 /* tap to focus on the preview (scan and Kamera tab): OmsCam honours the panel's "Dokunarak odakla" switch and draws the ring */
 var TAP = { bound: false };
@@ -1526,7 +1698,7 @@ function catFill(ls) {
     if (hit && (VIEW.cur === 'scan' || VIEW.cur === 'basket')) render(VIEW.cur);
   })();
 }
-function catChanged() { CATR.clear(); if (VIEW.cur === 'scan' || VIEW.cur === 'basket') render(VIEW.cur); else if (VIEW.cur === 'set') renderCatCard(); }
+function catChanged() { CATR.clear(); if (VIEW.cur === 'scan' || VIEW.cur === 'basket' || VIEW.cur === 'stock') render(VIEW.cur); else if (VIEW.cur === 'set') renderCatCard(); }
 function catInit() {
   if (!hasCat()) return;
   try { if (OmsCatalog.onChange && !CATQ.sub) { CATQ.sub = true; OmsCatalog.onChange(catChanged); } } catch (e) { }
@@ -1566,35 +1738,282 @@ function renderCatCard() {
     });
   } else kv = '<div class="kv"><dt>Durum</dt><dd>Henüz alınmadı</dd></div>';
   $('catkv').innerHTML = kv;
-  var noLan = !hasLan();
-  $('bcatsync').disabled = noLan;
+  var noLan = !hasLan(), canRef = catCanRefresh();
+  if (!$('bcatsync').getAttribute('aria-busy') || $('bcatsync').getAttribute('aria-busy') === 'false') $('bcatsync').disabled = !canRef;
   var note = CATUI.note;
-  if (noLan) note = '<div class="note info">' + ico('i-info') + '<div>PC adresi yok. Eşleştirme kodunu PC\'den yeniden okutun ya da aşağıdaki <b>PC adresleri</b> bölümüne ekleyin.</div></div>';
+  if (!canRef) note = '<div class="note info">' + ico('i-info') + '<div>' + (driveOk() ? 'Yukarıdan <b>OneDrive\'a bağlanın</b> ya da telefonu PC ile aynı Wi-Fi ağına bağlayın. ' : '') +
+    'PC adresi yok: eşleştirme kodunu PC\'den yeniden okutun ya da <b>Gelişmiş › PC adresleri</b> bölümüne ekleyin.</div></div>';
   $('catnote').innerHTML = note; $('catnote').hidden = !note;
   var c = $('bcatcert'); c.hidden = !CATUI.cert || noLan; if (CATUI.cert) c.href = CATUI.cert;
 }
-$('bcatsync').addEventListener('click', async function () {
+$('bcatsync').addEventListener('click', function () { catManual(this, 'catmsg'); });
+$('bstkref').addEventListener('click', function () { catManual(this, 'stkmsg'); });
+/* one refresh for both buttons (Ayarlar card, Stok tab): OneDrive first when connected, then the PC on the LAN */
+async function catManual(btn, msgId) {
   if (!S.pair || !hasCat()) return;
-  var btn = this; busy(btn, true); setMsg('catmsg', 'Stok listesi alınıyor…'); CATUI.note = ''; CATUI.cert = ''; renderCatCard(); btn.disabled = true;
-  var r;
-  try { r = await OmsCatalog.sync({ dev: S.pair.dev, sec: secBytes(), lan: S.pair.lan || [] }); }
-  catch (e) { r = { ok: false, code: 'ERROR', error: 'Stok listesi alınamadı: ' + ((e && e.message) || e) }; }
+  busy(btn, true); setMsg(msgId, 'Stok listesi alınıyor…'); CATUI.note = ''; CATUI.cert = ''; renderCatCard(); stkNote();
+  var r = await catRefresh(false);
   busy(btn, false);
-  LS.set(K.catTry, String(Date.now()));
-  if (r && r.ok) {
-    setMsg('catmsg', 'Stok listesi alındı: ' + fmtQty(r.count) + ' parça' + (r.pc ? ' (' + r.pc + ')' : '') + '.', 'ok');
-    catChanged();
-  } else {
-    r = r || {};
-    if (r.needCertUrl) {
-      CATUI.cert = r.needCertUrl;
-      CATUI.note = '<div class="note warn">' + ico('i-shield') + '<div><b>PC\'ye bağlanılamadı.</b> Telefon PC ile aynı Wi-Fi ağında olmalı. PC kendi imzaladığı bir sertifika kullanır; tarayıcının bir kez onaylaması gerekir: ' +
-        '<b>PC sertifikasını onayla</b> düğmesi PC adresini yeni sekmede açar. Uyarı sayfasında <b>Gelişmiş</b> → <b>Devam et</b> deyin, sonra bu sekmeye dönüp yeniden <b>Stok listesini al</b>\'a basın.</div></div>';
+  if (r.ok) setMsg(msgId, (r.same ? 'Stok listesi zaten güncel: ' : 'Stok listesi alındı: ') + fmtQty(r.count) + ' parça' + (r.src === 'drive' ? ' (OneDrive)' : r.pc ? ' (' + r.pc + ')' : '') + '.', 'ok');
+  else setMsg(msgId, r.error, 'err');
+  renderCatCard(); stkNote();
+  if (msgId === 'catmsg' && btn) btn.disabled = !catCanRefresh();
+}
+function lanCertNote(btnName) {
+  return '<div class="note warn">' + ico('i-shield') + '<div><b>PC\'ye bağlanılamadı.</b> Telefon PC ile aynı Wi-Fi ağında olmalı. PC kendi imzaladığı bir sertifika kullanır; tarayıcının bir kez onaylaması gerekir: ' +
+    '<b>PC sertifikasını onayla</b> düğmesi PC adresini yeni sekmede açar. Uyarı sayfasında <b>Gelişmiş</b> → <b>Devam et</b> deyin, sonra bu sekmeye dönüp yeniden <b>' + btnName + '</b>\'e basın.</div></div>';
+}
+function catCanRefresh() { return !!(S.pair && hasCat() && ((driveOn() && catDriveOk()) || hasLan())); }
+function catDriveOk() { return !!(window.OmsDrive && OmsDrive.download && window.OmsCatalog && OmsCatalog.loadArmor); }
+function driveWhy(d) {
+  d = d || {};
+  if (d.code === 'NOT_FOUND') return 'OneDrive\'da stok listesi henüz yok. PC\'deki OMS programı açık ve bulut klasörü kurulu olmalı; birkaç dakika sonra yeniden deneyin.';
+  if (d.code === 'LOGIN') return 'OneDrive bağlantısının süresi doldu: Ayarlar\'dan OneDrive\'a yeniden bağlanın.';
+  return d.error || 'Stok listesi OneDrive\'dan alınamadı.';
+}
+/* -> {ok, count, pc, src:'drive'|'lan', same, error}; never rejects. quiet: no cert note, no UI */
+var CATREF = { p: null };
+function catRefresh(quiet) {
+  if (CATREF.p) return CATREF.p;
+  CATREF.p = (async function () {
+    if (!S.pair || !hasCat()) return { ok: false, error: 'Stok listesi modülü yüklenemedi. İnternete bağlıyken sayfayı yenileyin.' };
+    var errs = [], lanR = null;
+    if (driveOn() && catDriveOk()) {
+      LS.set(K.drvTry, String(Date.now()));
+      var d = null, et = '';
+      try { var ci = OmsCatalog.info(); if (ci && ci.count != null) et = LS.get(K.catEtag) || ''; } catch (e) { }
+      try { d = await OmsDrive.download(OmsDrive.catalogFileName ? OmsDrive.catalogFileName(S.pair.dev) : 'oms_katalog_' + S.pair.dev + '.omsk', et ? { etag: et } : undefined); }
+      catch (e) { d = { ok: false, code: 'ERROR', error: (e && e.message) || String(e) }; }
+      if (d && d.ok && d.notModified) { var i0 = null; try { i0 = OmsCatalog.info(); } catch (e) { } return { ok: true, same: true, count: i0 ? i0.count : 0, src: 'drive' }; }
+      if (d && d.ok && d.text) {
+        try {
+          var info = await OmsCatalog.loadArmor(d.text, secBytes(), { dev: S.pair.dev, source: 'onedrive' });
+          if (info && info.ok === false) throw new Error(info.error || info.code || 'açılamadı');
+          if (d.etag) LS.set(K.catEtag, d.etag); else LS.del(K.catEtag);
+          catChanged();
+          return { ok: true, count: info && info.count != null ? info.count : 0, pc: info && info.pc, src: 'drive' };
+        } catch (e) { errs.push('OneDrive\'daki stok listesi açılamadı: ' + ((e && e.message) || e)); }
+      } else errs.push(driveWhy(d));
     }
-    setMsg('catmsg', r.error || ('Stok listesi alınamadı' + (r.code ? ' (' + r.code + ')' : '') + '.'), 'err');
+    if (hasLan()) {
+      LS.set(K.catTry, String(Date.now()));
+      try { lanR = await OmsCatalog.sync({ dev: S.pair.dev, sec: secBytes(), lan: S.pair.lan || [] }); }
+      catch (e) { lanR = { ok: false, code: 'ERROR', error: 'Stok listesi alınamadı: ' + ((e && e.message) || e) }; }
+      lanR = lanR || { ok: false };
+      if (lanR.ok) { LS.del(K.catEtag); catChanged(); return { ok: true, count: lanR.count, pc: lanR.pc, src: 'lan' }; }
+      if (lanR.needCertUrl && !quiet) { CATUI.cert = lanR.needCertUrl; CATUI.note = lanCertNote(VIEW.cur === 'stock' ? 'Yenile' : 'Stok listesini al'); }
+      errs.push(lanR.error || ('PC\'den stok listesi alınamadı' + (lanR.code ? ' (' + lanR.code + ')' : '') + '.'));
+    }
+    if (!errs.length) errs.push(driveOk() ? 'Stok listesi için Ayarlar\'dan OneDrive\'a bağlanın ya da telefonu PC ile aynı Wi-Fi ağına bağlayın.' :
+      'Stok listesi telefon PC ile aynı Wi-Fi ağındayken alınır. PC adresi yok: eşleştirme kodunu PC\'den yeniden okutun.');
+    return { ok: false, error: errs.join(' '), needCertUrl: lanR && lanR.needCertUrl || '' };
+  })().then(function (r) { CATREF.p = null; return r; }, function (e) { CATREF.p = null; return { ok: false, error: String((e && e.message) || e) }; });
+  return CATREF.p;
+}
+/* OneDrive catalog on page open / when the Stok tab opens: older than 30 min, at most every 10 min, silent */
+function catDriveSilent() {
+  if (!driveOn() || !catDriveOk() || !S.pair || navigator.onLine === false) return;
+  var i = null; try { i = OmsCatalog.info(); } catch (e) { }
+  var at = i ? (typeof i.at === 'number' ? i.at : Date.parse(i.at)) : 0;
+  if (at && Date.now() - at < DRV_CAT_STALE_MS) return;
+  if (Date.now() - (+(LS.get(K.drvTry) || 0)) < DRV_CAT_RETRY_MS) return;
+  catRefresh(true).then(function (r) { if (VIEW.cur === 'stock' && !r.ok && !(i && i.count)) setMsg('stkmsg', r.error, 'err'); });
+}
+
+/* ===================== V8: Stok tab (OmsStock, stockview.js; spec section 18) ===================== */
+var STK = { h: null };
+function stockOk() { return !!(window.OmsStock && typeof OmsStock.render === 'function'); }
+function stockInfo() {
+  var i = null; try { i = hasCat() ? OmsCatalog.info() : null; } catch (e) { i = null; }
+  return i;
+}
+function renderStock() {
+  var box = $('stockbox');
+  $('bstkref').disabled = !catCanRefresh(); $('bstkref').hidden = stockOk();   /* the module has its own Yenile */
+  stkNote();
+  if (!stockOk()) { box.innerHTML = '<div class="note warn">' + ico('i-warn') + '<div>Stok listesi modülü (stockview.js) yüklenemedi. İnternete bağlıyken sayfayı yenileyin.</div></div>'; STK.h = null; return; }
+  try {
+    if (STK.h && box.firstChild && typeof STK.h.update === 'function') STK.h.update();
+    else {
+      box.innerHTML = '';
+      STK.h = OmsStock.render(box, {
+        getInfo: stockInfo,
+        onRefresh: function () { setMsg('stkmsg', ''); CATUI.note = ''; CATUI.cert = ''; return catRefresh(true).then(function (r) { stkNote(); return r; }); }   /* the module shows the result and the certificate link */
+      }) || {};
+    }
+  } catch (e) { STK.h = null; box.innerHTML = '<div class="note err">' + ico('i-err') + '<div>Stok listesi gösterilemedi: ' + esc((e && e.message) || e) + '</div></div>'; }
+  catDriveSilent();
+}
+/* how the list gets here: one line, plus the PC certificate hint after a failed LAN attempt */
+function stkNote() {
+  var h = '';
+  if (CATUI.note) h = CATUI.note + (CATUI.cert ? '<div class="acts"><a class="btn btn-sec" href="' + esc(CATUI.cert) + '" target="_blank" rel="noopener">' + ico('i-shield') + 'PC sertifikasını onayla</a></div>' : '');
+  else if (S.pair && !catCanRefresh()) h = '<div class="note info">' + ico('i-info') + '<div>' + (driveOk() ?
+    'Stok listesini her yerden almak için <b>Ayarlar</b>\'dan <b>OneDrive\'a bağlanın</b>. Ya da telefonu PC ile aynı Wi-Fi ağına bağlayın.' :
+    'Stok listesi telefon PC ile aynı Wi-Fi ağındayken alınır. PC adresi yok: eşleştirme kodunu PC\'den yeniden okutun.') + '</div></div>';
+  $('stknote').innerHTML = h;
+}
+
+/* ===================== V8: direct OneDrive (OmsDrive, onedrive.js; spec sections 17-18) ===================== */
+var DRV = { st: 'off', p: null, started: false, busy: false, loginToastAt: 0, err: '' };
+function driveOk() { try { return !!(window.OmsDrive && typeof OmsDrive.available === 'function' && OmsDrive.available() && typeof OmsDrive.send === 'function'); } catch (e) { return false; } }
+function driveAcc() { if (!driveOk() || DRV.st !== 'ready') return null; try { return OmsDrive.account() || null; } catch (e) { return null; } }
+function driveOn() { return !!driveAcc(); }
+function driveName(a) { return a ? (a.name && a.username && a.name !== a.username ? a.name + ' (' + a.username + ')' : (a.username || a.name || 'Microsoft hesabı')) : ''; }
+function driveInit() {
+  if (!driveOk() || DEMO) return Promise.resolve(false);
+  if (DRV.p) return DRV.p;
+  DRV.st = 'loading';
+  DRV.p = Promise.resolve().then(function () { return OmsDrive.init(); }).then(function () {
+    DRV.st = 'ready';
+    if (!DRV.started) {
+      DRV.started = true;
+      try { OmsDrive.onChange(onDriveEvent); } catch (e) { }
+      try { OmsDrive.start(); } catch (e) { }
+    }
+    driveSync(); driveUi(); catDriveSilent();
+    return true;
+  }, function (e) { DRV.st = 'error'; DRV.err = (e && e.message) || String(e); driveUi(); return false; });
+  return DRV.p;
+}
+/* every place that shows the connection */
+function driveUi() {
+  if (VIEW.cur === 'set') { renderDrive(); renderCatCard(); renderMs(); }
+  else if (VIEW.cur === 'basket') renderBasket();
+  else if (VIEW.cur === 'who') renderWho();
+  else if (VIEW.cur === 'stock') { $('bstkref').disabled = !catCanRefresh(); stkNote(); }
+}
+/* Settings > cloud send card: connect button on top; when connected the share-sheet settings step aside */
+function renderDrive() {
+  var ok = driveOk(), a = driveAcc();
+  $('c_drive').hidden = !ok;
+  $('sharehd').hidden = !ok || !!a;
+  $('c_share').hidden = !!a;
+  $('c_drive').classList.toggle('last', !!a);
+  if (!ok) return;
+  $('drv_off').hidden = !!a; $('drv_on').hidden = !a;
+  if (a) {
+    $('drvacct').textContent = 'OneDrive\'a bağlı: ' + driveName(a);
+    var q = S.hist.filter(function (x) { return x.ch === 'drive' && x.out; }).length;
+    $('drvq').hidden = !q; $('drvq').textContent = q ? 'Giden kutusunda ' + q + ' sepet bekliyor.' : '';
+    $('bdrvflush').hidden = !q;
   }
-  renderCatCard();
+}
+/* popup inside the tap (desktop / Android); iOS or a blocked popup -> the whole page goes to Microsoft and comes back */
+async function driveSignIn(btn, msgId) {
+  if (!driveOk()) return false;
+  busy(btn, true); if (msgId) setMsg(msgId, '');
+  var r;
+  try { r = await OmsDrive.signIn(); }
+  catch (e) { r = { ok: false, code: 'ERROR', error: (e && e.message) || String(e) }; }
+  busy(btn, false);
+  r = r || { ok: false };
+  if (r.redirecting) { if (msgId) setMsg(msgId, 'Microsoft giriş sayfasına gidiliyor…'); return false; }
+  if (DRV.st !== 'ready') await driveInit();
+  var a = driveAcc();
+  if (r.ok && a) {
+    toast('OneDrive\'a bağlandı: ' + driveName(a));
+    driveFlush(null, true);
+    LS.del(K.drvTry); catDriveSilent();
+    driveUi(); if (VIEW.cur === 'hist') renderHist();
+    return true;
+  }
+  var m = r.code === 'CANCELLED' ? 'Bağlanma iptal edildi.' : (r.error || 'OneDrive\'a bağlanılamadı.');
+  if (msgId) setMsg(msgId, m, r.code === 'CANCELLED' ? '' : 'err'); else toast(m, r.code !== 'CANCELLED');
+  return false;
+}
+$('bdrvin').addEventListener('click', function () { driveSignIn(this, 'drvmsg'); });
+$('bwdrv').addEventListener('click', function () { driveSignIn(this, 'wmsg'); });
+$('bdrvflush').addEventListener('click', function () { driveFlush(this); });
+$('bdrvout').addEventListener('click', async function () {
+  var q = S.hist.filter(function (x) { return x.ch === 'drive' && x.out; }).length;
+  if (!(await ask('OneDrive bağlantısı kesilsin mi?', 'Sepetler bundan sonra paylaşma menüsüyle gönderilir.' +
+    (q ? ' Giden kutusundaki ' + q + ' sepet yeniden bağlanana kadar bekler.' : ''), 'Bağlantıyı kes', false))) return;
+  var btn = this; busy(btn, true);
+  try { await OmsDrive.signOut(); toast('OneDrive bağlantısı kesildi'); } catch (e) { toast('Bağlantı kesilemedi: ' + ((e && e.message) || e), true); }
+  busy(btn, false); renderSet();
 });
+/* one tap: seal -> OmsDrive.send (uploads; a passing problem puts it in the outbox itself) -> history */
+async function driveSend(b, fromHist, btn) {
+  if (DRV.busy) return;
+  if (!S.pair) { toast('Önce cihazı eşleştirin.', true); showView('pair'); return; }
+  var er = envReady(); if (er) { toast(er, true); return; }
+  DRV.busy = true; busy(btn, true);
+  var main = btn && btn.id === 'bsend';
+  if (main) { $('bsendtx').textContent = 'Gönderiliyor…'; }
+  var ctx = null, r = null;
+  try {
+    ctx = await sealCtx(b, fromHist);
+    ctx.dname = OmsDrive.basketFileName ? OmsDrive.basketFileName(S.pair.dev, ctx.date) : 'oms_sepet_' + stamp(+ctx.date) + '_' + S.pair.dev + '.omsb.txt';
+    r = await OmsDrive.send({ basketId: b.basket, name: ctx.dname, text: ctx.armor });
+  } catch (e) { r = { ok: false, code: ctx ? 'ERROR' : 'SEAL', error: (e && e.message) || String(e) }; }
+  DRV.busy = false; busy(btn, false);
+  r = r || { ok: false, code: 'ERROR' };
+  if (main) renderBasket();
+  if (r.code === 'SEAL') { toast('Sepet hazırlanamadı: ' + r.error, true); return; }
+  if (r.ok) { FB.go('ok'); markSent(ctx, 'drive'); return; }
+  if (r.queued) { markSent(ctx, 'queued', r.code === 'OFFLINE' || r.code === 'LOGIN' ? '' : (r.error || ''), 'drive', r.code === 'LOGIN' ? 'login' : 'queued'); return; }
+  /* not sendable this way (e.g. a bad file): keep the basket, offer the other ways */
+  FB.go('err');
+  toast((r.error || 'OneDrive\'a gönderilemedi.') + ' Başka yolla göndermek için ⋯ düğmesine basın.', true, fromHist ? null : { t: 'Başka yol', fn: function () { startSend(b, fromHist); } });
+}
+function driveRemove(id) { try { if (window.OmsDrive && OmsDrive.remove) Promise.resolve(OmsDrive.remove(id)).catch(function () { }); } catch (e) { } }
+async function driveFlush(btn, quiet) {
+  if (!driveOk()) return;
+  if (DRV.st !== 'ready') await driveInit();
+  busy(btn, true);
+  var r = null;
+  try { r = await OmsDrive.flush(); } catch (e) { r = null; }
+  busy(btn, false);
+  await driveSync();
+  if (quiet || !r) return;
+  var sN = (r.sent || []).length, f = (r.failed || [])[0];
+  if (sN && !f) toast(sN + ' sepet OneDrive\'a gönderildi ✓');
+  else if (f) toast(f.code === 'LOGIN' ? 'OneDrive\'a yeniden bağlanın.' : (f.error || 'Gönderilemedi.'), f.code !== 'OFFLINE');
+  else toast('Bekleyen sepet yok');
+}
+/* history flags <-> the real OneDrive outbox (page open, after flush) */
+function driveSync() {
+  if (!driveOk() || DRV.st !== 'ready' || !OmsDrive.pending) return Promise.resolve();
+  return Promise.resolve().then(function () { return OmsDrive.pending(); }).then(function (list) {
+    var ids = {}, chg = false, login = false;
+    try { login = !!(OmsDrive.loginNeeded && OmsDrive.loginNeeded()); } catch (e) { }
+    (list || []).forEach(function (it) { if (it && it.basketId) ids[it.basketId] = it; });
+    S.hist.forEach(function (h) {
+      var it = ids[h.basket];
+      if (it && (!h.out || h.ch !== 'drive')) { h.out = 'queued'; h.ch = 'drive'; h.q = h.q || it.queuedAt || Date.now(); chg = true; }
+      else if (!it && h.ch === 'drive' && h.out) { delete h.out; delete h.outErr; delete h.ch; chg = true; }   /* left the outbox: sent (event missed) or removed */
+      if (!it) return;
+      var st = it.lastCode === 'LOGIN' || (login && !driveOn()) ? 'login' : it.lastCode && it.lastCode !== 'OFFLINE' && it.lastCode !== 'THROTTLED' && it.lastCode !== 'LOGIN' ? 'failed' : 'queued';
+      var e = it.lastCode === 'OFFLINE' || it.lastCode === 'LOGIN' ? '' : (it.lastError || '');
+      if (h.out !== st || (h.outErr || '') !== e) { h.out = st; h.outErr = e; chg = true; }
+    });
+    if (chg) { saveHist(); if (VIEW.cur === 'hist') renderHist(); }
+    if (VIEW.cur === 'set') renderDrive();
+  }, function () { });
+}
+function onDriveEvent(ev) {
+  if (!ev) return;
+  if (ev.type === 'account') { driveUi(); if (driveOn()) S.hist.forEach(function (h) { if (h.ch === 'drive' && h.out === 'login') { h.out = 'queued'; } }); if (VIEW.cur === 'hist') renderHist(); return; }
+  var x = ev.basketId ? histByBasket(ev.basketId) : null, now = Date.now(), chg = false;
+  if (x && x.ch !== 'drive' && ev.type !== 'sent') x = null;
+  if (ev.type === 'sent' && x && x.out && x.ch === 'drive') {
+    x.sends.push(now); x.via = 'drive'; delete x.out; delete x.outErr; delete x.ch; chg = true;
+    toast('Giden kutusundaki sepet OneDrive\'a gönderildi ✓ (' + fmtQty(x.lines.length) + ' satır)');
+  } else if (ev.type === 'queued' && x) { if (!x.out) { x.out = 'queued'; x.q = x.q || now; chg = true; } }
+  else if (ev.type === 'failed' && x) {
+    var soft = ev.code === 'OFFLINE' || ev.code === 'THROTTLED' || ev.code === 'SERVER';
+    x.out = soft ? 'queued' : 'failed'; x.outErr = ev.code === 'OFFLINE' ? '' : (ev.error || ev.code || ''); chg = true;
+  } else if (ev.type === 'removed' && x && x.out) { delete x.out; delete x.outErr; delete x.ch; chg = true; }
+  else if (ev.type === 'login') {
+    S.hist.forEach(function (h) { if (h.ch === 'drive' && h.out) { h.out = 'login'; chg = true; } });
+    if (now - DRV.loginToastAt > 600000 && S.hist.some(function (h) { return h.ch === 'drive' && h.out; })) {
+      DRV.loginToastAt = now;
+      toast('Giden kutusundaki sepetler için OneDrive\'a yeniden bağlanın.', true, { t: 'Bağlan', fn: function () { driveSignIn(null).then(function (ok) { if (ok) driveFlush(null, true); }); } });
+    }
+  }
+  if (chg) { saveHist(); if (VIEW.cur === 'hist') renderHist(); if (VIEW.cur === 'set') renderDrive(); }
+}
 
 /* ===================== V6: pairing extras + PC addresses (spec section 10) ===================== */
 function normLan(u) {
@@ -1682,7 +2101,7 @@ function loadMsal() {
 /* configure + init once per Client ID; a changed ID reloads the page (MSAL keeps one app instance per page) */
 function mailSetup() {
   var cid = mailCid();
-  if (!window.OmsMail || !cid || DEMO) { if (!MAIL.p) MAIL.st = 'off'; return Promise.resolve(false); }
+  if (!window.OmsMail || !cid || DEMO || driveOk()) { if (!MAIL.p) MAIL.st = 'off'; return Promise.resolve(false); }
   if (MAIL.p && MAIL.cid === cid) return MAIL.p;
   if (MAIL.p && MAIL.cid !== cid) { flushSave(); location.reload(); return MAIL.p; }
   MAIL.cid = cid; MAIL.st = 'loading'; MAIL.err = '';
@@ -1731,7 +2150,7 @@ async function mailSignIn(btn, msgId) {
   } finally { busy(btn, false); }
 }
 function renderMs() {
-  var card = $('c_ms'); card.hidden = !S.pair; if (!S.pair) return;   /* sub-section of Ayarlar > Gelişmiş */
+  var card = $('c_ms'); card.hidden = !S.pair || driveOk(); if (card.hidden) return;   /* sub-section of Ayarlar > Gelişmiş; OneDrive replaces it */
   var cid = mailCid(), stat = $('msstat'), a = mailAccount();
   if (document.activeElement !== $('scid')) $('scid').value = cid;
   $('redir').textContent = redirectUri();
@@ -1797,6 +2216,17 @@ async function directSend(ctx, to, btn) {
 /* outbox state <-> history entries */
 function histByBasket(id) { for (var i = 0; i < S.hist.length; i++) if (S.hist[i].basket === id) return S.hist[i]; return null; }
 function histState(x) {
+  var ix = S.hist.indexOf(x);
+  if (x.ch === 'drive' && x.out) {
+    if (x.out === 'login') return { tag: '<span class="tag err">' + ico('i-key') + 'Bağlantı gerekli</span>',
+      more: '<p class="small hst">Giden kutusunda bekliyor. OneDrive\'a yeniden bağlanınca kendiliğinden gider.</p>' +
+        '<div class="acts"><button type="button" class="btn btn-pri" data-a="dlogin" data-i="' + ix + '">' + ico('i-cloudlink') + 'OneDrive\'a yeniden bağlan</button></div>' };
+    var bad = x.out === 'failed';
+    return { tag: bad ? '<span class="tag err">' + ico('i-err') + 'Gönderilemedi</span>' : '<span class="tag warn">' + ico('i-sync') + 'Giden kutusunda</span>',
+      more: '<p class="small hst">' + (x.outErr ? esc(x.outErr) + ' ' : '') + (bad ? 'Giden kutusunda bekliyor; yeniden denenecek.' : 'İnternet gelince kendiliğinden OneDrive\'a gider.') + '</p>' +
+        '<div class="acts"><button type="button" class="btn btn-sec" data-a="flush" data-i="' + ix + '">' + ico('i-resync') + 'Şimdi dene</button></div>' };
+  }
+  if (x.via === 'drive' && !x.out) return { tag: '<span class="tag ok">' + ico('i-cloudok') + 'OneDrive\'a gönderildi</span>', more: '' };
   if (x.out === 'queued') return { tag: '<span class="tag warn">' + ico('i-sync') + 'Giden kutusunda</span>',
     more: '<p class="small hst">İnternet gelince kendiliğinden gönderilir.' + (x.outErr ? ' Son hata: ' + esc(x.outErr) : '') + '</p>' +
       '<div class="acts"><button type="button" class="btn btn-sec" data-a="flush" data-i="' + S.hist.indexOf(x) + '">' + ico('i-resync') + 'Şimdi dene</button></div>' };
@@ -1812,6 +2242,7 @@ function histState(x) {
 function onMailEvent(ev) {
   if (!ev) return;
   var x = ev.basketId ? histByBasket(ev.basketId) : null, now = Date.now(), chg = false;
+  if (x && x.ch === 'drive') x = null;
   if (ev.type === 'sent' && x) {
     x.sends.push(now); x.via = 'direct'; delete x.out; delete x.outErr; chg = true;
     toast('Giden kutusundaki sepet gönderildi ✓ (' + fmtQty(x.lines.length) + ' satır)');
@@ -1820,9 +2251,9 @@ function onMailEvent(ev) {
     /* channel-wide conditions (no internet, throttled) keep the item 'queued'; item errors show as 'failed' */
     x.out = (ev.code === 'OFFLINE' || ev.code === 'THROTTLED') ? 'queued' : 'failed'; x.outErr = ev.code === 'OFFLINE' ? '' : (ev.error || ev.code || ''); chg = true;
   }
-  else if (ev.type === 'account') { if (VIEW.cur === 'set') renderMs(); if (mailAccount()) S.hist.forEach(function (h) { if (h.out === 'login') { h.out = 'queued'; chg = true; } }); }
+  else if (ev.type === 'account') { if (VIEW.cur === 'set') renderMs(); if (mailAccount()) S.hist.forEach(function (h) { if (h.out === 'login' && h.ch !== 'drive') { h.out = 'queued'; chg = true; } }); }
   else if (ev.type === 'login') {
-    S.hist.forEach(function (h) { if (h.out && (!ev.basketId || h.basket === ev.basketId)) { h.out = 'login'; chg = true; } });
+    S.hist.forEach(function (h) { if (h.out && h.ch !== 'drive' && (!ev.basketId || h.basket === ev.basketId)) { h.out = 'login'; chg = true; } });
     if (now - MAIL.loginToastAt > 600000) {
       MAIL.loginToastAt = now;
       toast('Giden kutusundaki sepetler için Microsoft hesabına yeniden giriş yapın.', true, { t: 'Giriş yap', fn: function () { mailSignIn(null).then(function (ok) { if (ok) outboxFlush(null, true); }); } });
@@ -1837,6 +2268,7 @@ function outboxSync() {
     var ids = {}, chg = false;
     (list || []).forEach(function (it) { if (it && it.basketId) ids[it.basketId] = it; });
     S.hist.forEach(function (h) {
+      if (h.ch === 'drive') return;   /* OneDrive outbox: driveSync() */
       var it = ids[h.basket];
       if (it && !h.out) { h.out = 'queued'; h.q = h.q || Date.now(); chg = true; }
       else if (!it && h.out) { delete h.out; delete h.outErr; chg = true; }   /* left the outbox: sent (event missed) or removed */
@@ -1867,9 +2299,11 @@ function outboxRemove(id) { try { if (window.OmsMail && OmsMail.remove) Promise.
 function authCallbackPage() {
   document.body.classList.add('v-pair');
   $('main').innerHTML = '<div class="hero"><div class="card"><p id="authmsg" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span>Microsoft girişi tamamlanıyor…</p></div></div>';
-  var p = null; try { p = OmsMail.handleAuthCallback(); } catch (e) { }
+  var p = null;
+  try { p = window.OmsMail && OmsMail.isAuthCallback ? OmsMail.handleAuthCallback() : null; } catch (e) { }
+  try { if (!p && window.OmsDrive && OmsDrive.handleAuthCallback) p = OmsDrive.handleAuthCallback(); } catch (e) { }
   Promise.resolve(p).then(function () {
-    if (!OmsMail.isAuthCallback) { try { history.replaceState(null, '', location.pathname); } catch (e) { } location.reload(); return; }
+    if (!(window.OmsMail && OmsMail.isAuthCallback) && !(window.OmsDrive && OmsDrive.isAuthCallback)) { try { history.replaceState(null, '', location.pathname); } catch (e) { } location.reload(); return; }
     setTimeout(function () {
       var m = $('authmsg'); if (!m) return;
       m.innerHTML = 'Giriş tamamlandı. Bu pencere kendiliğinden kapanmadıysa kapatın ya da <a href="' + esc(redirectUri()) + '">sayfaya dönün</a>.';
@@ -1919,13 +2353,16 @@ function banners() {
 
 /* ===================== boot ===================== */
 async function boot() {
-  if (window.OmsMail && OmsMail.isAuthCallback) { authCallbackPage(); return; }   /* MSAL popup / redirect target only */
+  if ((window.OmsMail && OmsMail.isAuthCallback) || (window.OmsDrive && OmsDrive.isAuthCallback)) { authCallbackPage(); return; }   /* MSAL popup / redirect target only */
+  var drvP = driveInit();   /* finishes a OneDrive redirect sign-in (iOS) before the URL is cleaned below */
+  if (window.OmsMail && OmsMail.hasAuthResponse && OmsMail.hasAuthResponse(location)) await Promise.race([drvP, tick(3000)]);
   if (window.OmsMail && OmsMail.hasAuthResponse && OmsMail.hasAuthResponse(location)) { try { history.replaceState(null, '', location.pathname + location.search.replace(/[?&](code|state|error|error_description|client_info|session_state)=[^&]*/g, '').replace(/^&/, '?')); } catch (e) { } }   /* stale MSAL response in the URL */
   S.pair = jget(K.pair, null);
   if (S.pair && !(S.pair.dev && S.pair.sec)) S.pair = null;
   S.user = LS.get(K.user) || ''; S.defLoc = LS.get(K.loc) || '';
   S.fb.snd = LS.get(K.snd) !== '0'; S.fb.vib = LS.get(K.vib) !== '0';
   S.cloud = cloudNorm(LS.get(K.cloud));
+  S.smode = LS.get(K.smode) === 'serial' ? 'serial' : 'manual';
   banners(); cloudInit(); netUi(); swInit();
   await DB.open();
   var b = await DB.get(K.basket), h = await DB.get(K.hist);
@@ -1968,6 +2405,8 @@ async function selfTest() {
   var bad = [], fails = [];
   VIEWS.forEach(function (v) { showView(v); if (overflow()) bad.push(v); });
   showView('basket'); editLine(S.basket.lines[2].id); if (overflow()) bad.push('edit'); closeModal();
+  editLine(S.basket.lines[0].id, { after: true }); if (overflow()) bad.push('edit-after'); closeModal();
+  if (smode() !== 'manual' && !serOk()) fails.push('smode');
   renderSendModal(demoCtx(true));
   if (overflow()) bad.push('send'); closeModal();
   renderSendModal(demoCtx(false, true)); if (overflow()) bad.push('send-more'); closeModal();
@@ -2004,7 +2443,7 @@ async function demo(v) {
 }
 
 /* debugging / test hook */
-window.OMSSAHA = { S: S, addLine: addLine, showView: showView, doPair: doPair, DEC: DEC, CAM: CAM, MAIL: MAIL, CATR: CATR, startSend: startSend,
+window.OMSSAHA = { S: S, SER: SER, DRV: DRV, driveSend: driveSend, driveSync: driveSync, catRefresh: catRefresh, editLine: editLine, addLine: addLine, showView: showView, doPair: doPair, DEC: DEC, CAM: CAM, MAIL: MAIL, CATR: CATR, startSend: startSend,
   renderSendModal: renderSendModal, openGuide: openGuide, guideSteps: guideSteps, cloudPrimary: cloudPrimary, SEND: SEND, mailSetup: mailSetup, catInit: catInit, render: render, version: function () { return APP.ver; } };
 
 if (DEMO === 'selftest') selfTest(); else if (DEMO) demo(DEMO); else boot();

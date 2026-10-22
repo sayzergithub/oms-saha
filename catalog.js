@@ -125,7 +125,7 @@
     var q = typeof p.q === 'number' && isFinite(p.q) ? p.q : null;
     return {
       id: str(p.id), m: str(p.m), f: str(p.f), s: str(p.s), q: q, l: str(p.l),
-      c: str(p.c), val: str(p.val), pkg: str(p.pkg), r: r
+      c: str(p.c), val: str(p.val), pkg: str(p.pkg), r: r, d: str(p.d)
     };
   }
 
@@ -546,8 +546,54 @@
     return next();
   }
 
+  // ------------------------------------------------------------------ V8: whole list + catalog from the cloud (spec §18)
+  /** Every part of the loaded catalog ([] when none). The array is shared: treat it as read-only. A new array after each load / sync. */
+  function all() {
+    return cur ? cur.parts : [];
+  }
+
+  /**
+   * Opens a catalog armor that came another way (OneDrive file oms_katalog_<dev>.omsk) with the device secret and stores it
+   * exactly like sync() does. secBytes: Uint8Array | b64url string. opts (optional): {dev: expected device id, source: label kept
+   * as info().url (default 'onedrive'), now: () => ms}. Resolves with info(); rejects with an Error whose .code is NOT_PAIRED |
+   * NO_CRYPTO | BAD_ENVELOPE | BAD_CATALOG and whose message is Turkish. A list older than the one already loaded from the same PC
+   * is not taken: the promise then resolves with a copy of the current info() carrying older: true.
+   */
+  function loadArmor(armor, secBytesArg, opts) {
+    var o = opts || {};
+    var now = typeof o.now === 'function' ? o.now : function () { return Date.now(); };
+    return Promise.resolve().then(function () {
+      var sec = secBytes(secBytesArg);
+      if (!sec || sec.length !== 32) throw catError('NOT_PAIRED', 'Cihaz eşleştirilmemiş. Önce PC\'deki eşleştirme kodunu okutun.');
+      if (!getCrypto() || !Env.supported()) throw catError('NO_CRYPTO', 'Bu tarayıcıda şifreleme (WebCrypto) yok. Sayfayı HTTPS adresinden açın.');
+      var text = str(armor).replace(/^\uFEFF/, '').trim();
+      if (!text) throw catError('BAD_ENVELOPE', 'Stok listesi dosyası boş.');
+      return Env.openFull(text, sec).catch(function (e) {
+        var c = e && e.code;
+        throw catError('BAD_ENVELOPE', c === 'BadTag'
+          ? 'Stok listesi doğrulanamadı. Eşleştirme eski olabilir; yeniden eşleştirin.'
+          : 'Stok listesi açılamadı (' + (c || 'hata') + ').');
+      }).then(function (r) {
+        var dev = str(o.dev).trim();
+        if (dev && r.dev !== dev) throw catError('BAD_ENVELOPE', 'Stok listesi başka bir cihaz için hazırlanmış.');
+        var rec = recordFromJson(r.json, typeof o.source === 'string' ? o.source : 'onedrive', now());
+        var a = cur ? Date.parse(cur.builtAt) : NaN, b = Date.parse(rec.builtAt);
+        if (cur && cur.pc === rec.pc && isFinite(a) && isFinite(b) && b < a) {
+          var keep = info();
+          keep.older = true;
+          return keep;
+        }
+        setCurrent(rec);
+        loadPromise = Promise.resolve(info());   // a later load() must not replace the fresh list with the stored one
+        return persist(rec).then(function () { return info(); });
+      });
+    });
+  }
+
   return {
     API_PATH: API_PATH,
+    all: all,
+    loadArmor: loadArmor,
     rawHash: rawHash,
     signRequest: signRequest,
     sync: sync,
