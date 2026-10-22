@@ -383,6 +383,8 @@
       var app = c === 'onedrive' ? 'OneDrive' : c === 'gdrive' ? 'Drive' : '';
       var s2 = { title: app ? app + '\'ı seçin' : 'Drive\'ı ya da OneDrive\'ı seçin', text: 'Listede yoksa kaydırın ya da Diğer\'e dokunun.', icon: 'share' };
       if (c === 'icloud') s2.note = 'Android\'de iCloud uygulaması yok; Drive ya da OneDrive kullanın.';
+      // field report 2026-10-22: OneDrive for Android refuses shared files ("cihaz depolamasına erişim") until this is granted
+      else if (c === 'onedrive' || !c) s2.note = 'OneDrive "depolama erişimi" isterse: telefon Ayarlar > Uygulamalar > OneDrive > İzinler > Dosyalar ve medya > Her zaman izin ver (bir kez).';
       var s3a = c === 'onedrive'
         ? { title: 'OMS Saha klasörüne yükleyin', text: 'OMS Saha klasörünü açın, sonra onaylayın (Yükle / Kaydet).', icon: 'folder' }
         : { title: 'Klasör: OMS Saha, sonra Kaydet', text: 'Klasör satırına dokunup OMS Saha\'yı seçin, sonra Kaydet\'e basın.', icon: 'folder' };
