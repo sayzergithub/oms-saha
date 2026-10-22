@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff">
+<meta name="format-detection" content="telephone=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="OMS Saha">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="OMS stok saha sayfası: makara tara, sepete ekle, buluta gönder.">
+<title>OMS Saha</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="icon" href="./icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<script>
+/* Theme: system / light / dark. Runs before first paint (no flash). Light uses "only light" so Android auto-dark does not repaint it. */
+(function(){var KEY='oms.saha.theme',mq=window.matchMedia?matchMedia('(prefers-color-scheme: dark)'):null;
+ function pref(){try{return localStorage.getItem(KEY)||'system'}catch(e){return'system'}}
+ function apply(p){var dark=p==='dark'||(p!=='light'&&!!(mq&&mq.matches)),r=document.documentElement;
+  r.setAttribute('data-theme',dark?'dark':'light');
+  var cs=document.querySelector('meta[name=color-scheme]');if(cs)cs.setAttribute('content',dark?'dark':'only light');
+  var tc=document.querySelector('meta[name=theme-color]');if(tc)tc.setAttribute('content',dark?'#18191b':'#ffffff')}
+ window.OMSTHEME={get:pref,set:function(p){try{localStorage.setItem(KEY,p)}catch(e){}apply(p)}};
+ apply(pref());
+ if(mq){var f=function(){if(pref()==='system')apply('system')};if(mq.addEventListener)mq.addEventListener('change',f);else if(mq.addListener)mq.addListener(f)}})();
+</script>
+<style>
+/* Same token set as the LAN page (Web/index.html, Radix Colors based): every text/background pair >= 4.5:1, control edges >= 3:1. */
+:root{
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --fs-cap:12px;--lh-cap:16px;--fs-lab:13px;--fs-sm:14px;--lh-sm:20px;--fs-body:16px;--lh-body:24px;
+  --fs-ttl:18px;--lh-ttl:24px;--fs-h:22px;--lh-h:28px;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:20px;--s6:24px;--s8:32px;--s10:40px;
+  --r-sm:6px;--r-md:8px;--r-lg:12px;--r-xl:16px;--r-full:999px;
+  --h-ctl:44px;--h-ctl-lg:52px;--h-top:56px;--h-nav:64px;--w-rail:80px;
+  --ease:cubic-bezier(.2,0,0,1);--ease-in:cubic-bezier(.3,0,.8,.15);--ease-out:cubic-bezier(.05,.7,.1,1);
+  --d1:100ms;--d2:150ms;--d3:200ms;--d4:300ms;
+  --safe-b:env(safe-area-inset-bottom,0px);--safe-t:env(safe-area-inset-top,0px);--safe-l:env(safe-area-inset-left,0px);--safe-r:env(safe-area-inset-right,0px);
+  color-scheme:light;
+  --bg:#f9f9fb;--surface:#ffffff;--surface-2:#f0f0f3;--hover:#e8e8ec;--pressed:#e0e1e6;
+  --line:#d9d9e0;--line-ctl:#8b8d98;
+  --text:#1c2024;--text-2:#60646c;--text-3:#6b6f77;
+  --accent:#0b68c1;--accent-hover:#0a5cab;--on-accent:#ffffff;--accent-text:#0b68c1;--accent-soft:#e6f4fe;--focus:#0b68c1;
+  --ok:#1a7349;--ok-soft:#e6f6eb;--ok-line:#8eceaa;
+  --warn:#8f5300;--warn-soft:#fff7c2;--warn-line:#e9c162;
+  --err:#ce2c31;--err-soft:#feebec;--err-line:#f4a9aa;
+  --danger:#ce2c31;--danger-hover:#b8262b;--on-danger:#ffffff;
+  --inverse:#1c2024;--on-inverse:#edeef0;--inv-ok:#3dd68c;--inv-err:#ff9592;--inv-act:#70b8ff;--scrim:rgba(0,0,0,.32);
+  --shadow-1:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.10);
+  --shadow-3:0 8px 24px rgba(16,24,40,.16),0 2px 6px rgba(16,24,40,.08);
+}
+:root[data-theme=dark]{
+  color-scheme:dark;
+  --bg:#111113;--surface:#18191b;--surface-2:#212225;--hover:#272a2d;--pressed:#2e3135;
+  --line:#363a3f;--line-ctl:#696e77;
+  --text:#edeef0;--text-2:#b0b4ba;--text-3:#8b919a;
+  --accent:#2870bd;--accent-hover:#3170c2;--on-accent:#ffffff;--accent-text:#70b8ff;--accent-soft:#0d2847;--focus:#70b8ff;
+  --ok:#3dd68c;--ok-soft:#132d21;--ok-line:#28684a;
+  --warn:#ffca16;--warn-soft:#302008;--warn-line:#714f19;
+  --err:#ff9592;--err-soft:#3b1219;--err-line:#8c333a;
+  --danger:#c62a2f;--danger-hover:#d23a3f;--on-danger:#ffffff;
+  --inverse:#edeef0;--on-inverse:#1c2024;--inv-ok:#1a7349;--inv-err:#ce2c31;--inv-act:#0b68c1;--scrim:rgba(0,0,0,.6);
+  --shadow-1:none;--shadow-3:0 8px 24px rgba(0,0,0,.5);
+}
+/* ==== base ==== */
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-padding-top:72px;scroll-padding-bottom:96px}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font:400 var(--fs-body)/var(--lh-body) var(--font);
+  padding:0 var(--safe-r) calc(var(--h-nav) + var(--safe-b)) var(--safe-l);-webkit-tap-highlight-color:transparent;overflow-wrap:break-word}
+button,input,select,textarea{font-family:inherit;font-size:16px;color:inherit;margin:0}
+button{cursor:pointer;touch-action:manipulation}
+h1,h2,h3{margin:0;font-weight:600}
+p{margin:0}
+a{color:var(--accent-text)}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono);font-size:14px}
+input.mono,textarea.mono{font-size:16px}
+.sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+:focus{outline:2px solid var(--focus);outline-offset:2px}
+:focus:not(:focus-visible){outline:none}
+.ic{width:20px;height:20px;flex:none;fill:currentColor;vertical-align:-4px}
+.ic.s16{width:16px;height:16px;vertical-align:-3px}
+.small{font-size:var(--fs-sm);line-height:var(--lh-sm);color:var(--text-2)}
+.mut{color:var(--text-2)}
+/* ==== top bar ==== */
+.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;min-height:calc(var(--h-top) + var(--safe-t));
+  padding:var(--safe-t) var(--s3) 0 var(--s4);background:var(--surface);border-bottom:1px solid var(--line)}
+.top h1{flex:1;min-width:0;font-size:var(--fs-ttl);line-height:var(--lh-ttl);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top h1 .sub{color:var(--text-2);font-weight:400}
+.brand{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:var(--r-md);background:var(--accent);color:var(--on-accent);margin-right:var(--s3);flex:none}
+.brand .ic{width:18px;height:18px}
+.conn{display:inline-flex;align-items:center;height:28px;padding:0 var(--s2);border-radius:var(--r-full);font-size:var(--fs-lab);font-weight:500;white-space:nowrap;margin-left:var(--s2);color:var(--text);background:var(--surface-2);border:1px solid var(--line)}
+.conn .ic{width:16px;height:16px;margin-right:6px}
+/* ==== banners ==== */
+.ban{display:flex;align-items:flex-start;padding:var(--s3) var(--s4);background:var(--err-soft);color:var(--text);border-bottom:1px solid var(--err-line);font-size:15px;line-height:22px}
+.ban>.ic{color:var(--err);margin:1px var(--s3) 0 0}
+.ban>div{flex:1;min-width:0}
+.ban.info{background:var(--accent-soft);border-color:var(--line)}
+.ban.info>.ic{color:var(--accent-text)}
+.ban .btn{margin-top:var(--s2)}
+/* ==== bottom nav / left rail ==== */
+.nav{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;height:calc(var(--h-nav) + var(--safe-b));padding:0 var(--safe-r) var(--safe-b) var(--safe-l);
+  background:var(--surface);border-top:1px solid var(--line)}
+.nav button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;border:0;background:none;padding:0;
+  color:var(--text-2);font-size:var(--fs-cap);line-height:var(--lh-cap);font-weight:500;min-height:var(--h-nav)}
+.nav .pill{display:flex;align-items:center;justify-content:center;width:56px;height:32px;border-radius:var(--r-full);margin-bottom:var(--s1);position:relative;
+  transition:background-color var(--d1) var(--ease)}
+.nav .pill .ic{width:24px;height:24px}
+.nav .pill .f{display:none}
+.nav [aria-current=page]{color:var(--text);font-weight:600}
+.nav [aria-current=page] .pill{background:var(--accent-soft);color:var(--accent-text)}
+.nav [aria-current=page] .pill .f{display:block}
+.nav [aria-current=page] .pill .r{display:none}
+.nav button:focus-visible{outline-offset:-4px}
+.badge{position:absolute;top:-4px;left:34px;display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;border-radius:var(--r-full);
+  background:var(--danger);color:#fff;font-size:12px;line-height:20px;font-weight:600;font-variant-numeric:tabular-nums}
+body.v-pair .nav{display:none}
+body.v-pair{padding-bottom:var(--safe-b)}
+/* ==== layout ==== */
+main{max-width:720px;margin:0 auto;padding:var(--s4)}
+.stack>*+*{margin-top:var(--s4)}
+.acts{display:flex;flex-wrap:wrap;margin:var(--s4) -4px 0}
+.acts>*{margin:4px;flex:1 1 auto}
+.acts.r{justify-content:flex-end}.acts.r>*{flex:0 0 auto}
+.row{display:flex;align-items:stretch}
+.row>input,.row>.grow{flex:1 1 auto;min-width:0}
+.row>.btn{flex:none;margin-left:var(--s2)}
+.vh{display:flex;align-items:center;min-height:44px;margin-bottom:var(--s3)}
+.vh h2{flex:1;min-width:0;font-size:var(--fs-h);line-height:var(--lh-h)}
+/* ==== card ==== */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s4);box-shadow:var(--shadow-1)}
+.card>h3,.card .ch{font-size:var(--fs-sm);line-height:var(--lh-sm);color:var(--text-2);font-weight:600;margin:0 0 var(--s3)}
+.card .ch2{display:flex;align-items:center;margin:0 0 var(--s3)}
+.card .ch2 h3{flex:1;font-size:var(--fs-ttl);line-height:var(--lh-ttl);min-width:0}
+/* ==== buttons ==== */
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:var(--h-ctl);padding:0 var(--s4);border-radius:var(--r-md);
+  border:1px solid transparent;font-size:16px;font-weight:500;line-height:20px;text-decoration:none;text-align:center;
+  transition:background-color var(--d1) var(--ease),transform var(--d1) var(--ease)}
+.btn .ic{margin:0 var(--s2) 0 calc(-1 * var(--s1))}
+.btn:active:not(:disabled){transform:scale(.98)}
+.btn-pri{background:var(--accent);color:var(--on-accent)}
+.btn-sec{background:var(--surface);color:var(--text);border-color:var(--line-ctl)}
+.btn-ghost{background:transparent;color:var(--accent-text)}
+.btn-danger{background:var(--danger);color:var(--on-danger)}
+.btn-danger-ghost{background:transparent;color:var(--err);border-color:var(--err-line)}
+.btn-lg{min-height:var(--h-ctl-lg);width:100%;font-weight:600}
+.btn-icon{width:var(--h-ctl);padding:0;background:transparent;color:var(--text-2);border-color:transparent}
+.btn-icon .ic{margin:0}
+.btn:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:default}
+.btn.full{display:flex;width:100%}
+@media(hover:hover){.btn-pri:not(:disabled):hover{background:var(--accent-hover)}
+  .btn-sec:not(:disabled):hover,.btn-icon:not(:disabled):hover,.btn-ghost:not(:disabled):hover{background:var(--hover)}
+  .btn-danger:not(:disabled):hover{background:var(--danger-hover)}.btn-danger-ghost:not(:disabled):hover{background:var(--err-soft)}}
+.spin{display:inline-block;width:18px;height:18px;border:3px solid var(--line);border-top-color:var(--accent-text);border-radius:50%;animation:sp 1s linear infinite;vertical-align:middle;margin-right:var(--s2)}
+@keyframes sp{to{transform:rotate(360deg)}}
+/* ==== fields ==== */
+.fld label,.lbl{display:block;font-size:var(--fs-sm);line-height:var(--lh-sm);font-weight:500;color:var(--text-2);margin:0 0 6px}
+.fld+.fld{margin-top:var(--s3)}
+input:not([type=checkbox]):not([type=radio]):not([type=file]),input[type=password],select,textarea{
+  display:block;width:100%;min-height:var(--h-ctl);padding:10px var(--s3);font-size:16px;line-height:22px;background:var(--surface);color:var(--text);
+  border:1px solid var(--line-ctl);border-radius:var(--r-md);-webkit-appearance:none;appearance:none}
+input::placeholder,textarea::placeholder{color:var(--text-3);opacity:1}
+input:focus,select:focus,textarea:focus{border-color:var(--focus);outline:1px solid var(--focus);outline-offset:0}
+input[aria-invalid=true],textarea[aria-invalid=true]{border-color:var(--err);box-shadow:inset 0 0 0 1px var(--err)}
+input[readonly],textarea[readonly]{background:var(--surface-2);color:var(--text)}
+textarea{resize:vertical}
+input[type=number]{-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.help{font-size:13px;line-height:18px;color:var(--text-2);margin-top:6px}
+.chk{display:flex;align-items:center;min-height:44px;font-size:16px;color:var(--text);cursor:pointer}
+.chk input{width:24px;height:24px;margin:0 var(--s3) 0 0;flex:none;accent-color:var(--accent)}
+/* ==== message line / notes ==== */
+.msg{font-size:15px;line-height:22px;margin-top:var(--s2)}
+.msg:empty{display:none}
+.msg.err{color:var(--err)}
+.msg.ok{color:var(--ok)}
+.note{display:flex;align-items:flex-start;padding:var(--s3) var(--s4);border-radius:var(--r-md);border:1px solid transparent;font-size:15px;line-height:22px}
+.note>.ic{margin:1px var(--s3) 0 0}
+.note>div{flex:1;min-width:0}
+.note.info{background:var(--accent-soft)}.note.info>.ic{color:var(--accent-text)}
+.note.warn{background:var(--warn-soft);border-color:var(--warn-line)}.note.warn>.ic{color:var(--warn)}
+.note.err{background:var(--err-soft);border-color:var(--err-line)}.note.err>.ic{color:var(--err)}
+.note.ok{background:var(--ok-soft);border-color:var(--ok-line)}.note.ok>.ic{color:var(--ok)}
+.steps{margin:0;padding-left:22px}
+.steps li+li{margin-top:var(--s2)}
+/* ==== tags ==== */
+.tag{display:inline-flex;align-items:center;min-height:22px;padding:0 var(--s2);border-radius:var(--r-sm);font-size:var(--fs-cap);line-height:var(--lh-cap);
+  font-weight:600;border:1px solid transparent;white-space:nowrap;vertical-align:middle}
+.tag .ic{width:12px;height:12px;margin-right:4px;vertical-align:0}
+.tag.ok{background:var(--ok-soft);color:var(--ok);border-color:var(--ok-line)}
+.tag.warn{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)}
+.tag.err{background:var(--err-soft);color:var(--err);border-color:var(--err-line)}
+.tag.neutral{background:var(--surface-2);color:var(--text-2);border-color:var(--line)}
+.tag.info{background:var(--accent-soft);color:var(--accent-text);border-color:var(--line)}
+/* ==== list rows ==== */
+.rl{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;margin:0;padding:0;list-style:none}
+.rl>li+li{border-top:1px solid var(--line)}
+.li{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-column-gap:var(--s3);align-items:center;width:100%;min-height:64px;padding:10px var(--s4);
+  border:0;background:none;text-align:left;color:var(--text);font-size:16px;line-height:24px}
+.li .t1{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .t2{grid-column:1;font-size:var(--fs-sm);line-height:var(--lh-sm);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .q{grid-column:2;grid-row:1;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.li .s{grid-column:2;grid-row:2;justify-self:end}
+.li.new{animation:flash 1.2s var(--ease)}
+@keyframes flash{from{background:var(--ok-soft)}to{background:transparent}}
+@media(hover:hover){button.li:hover{background:var(--hover)}}
+button.li:active{background:var(--pressed)}
+/* ==== key-value ==== */
+.kvl{margin:0}
+.kv{display:grid;grid-template-columns:minmax(96px,36%) minmax(0,1fr);grid-column-gap:var(--s3);padding:8px 0;border-top:1px solid var(--line)}
+.kv:first-child{border-top:0;padding-top:0}
+.kv dt{color:var(--text-2);font-size:var(--fs-sm)}
+.kv dd{margin:0;word-break:break-word}
+.rawbox{font-family:var(--mono);font-size:14px;line-height:20px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s2) var(--s3);
+  word-break:break-all;white-space:pre-wrap;max-height:120px;overflow-y:auto}
+.rawbox .cc{color:var(--accent-text);font-weight:700}
+/* ==== segment ==== */
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;padding:3px;background:var(--surface-2);border-radius:var(--r-md);border:1px solid var(--line)}
+.seg label{position:relative;display:flex;align-items:center;justify-content:center;min-height:40px;border-radius:6px;font-size:15px;font-weight:500;color:var(--text-2);cursor:pointer;border:1px solid transparent}
+.seg label .ic{margin-right:6px}
+.seg input{position:absolute;opacity:0;width:1px;height:1px}
+.seg label.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow-1);border-color:var(--line)}
+.seg label:focus-within{outline:2px solid var(--focus);outline-offset:1px}
+/* ==== empty state ==== */
+.empty{text-align:center;padding:var(--s10) var(--s4);color:var(--text-2);font-size:var(--fs-sm);line-height:var(--lh-sm)}
+.empty>.ic{width:40px;height:40px;color:var(--text-3)}
+.empty b{display:block;color:var(--text);font-size:16px;font-weight:600;margin:var(--s3) 0 var(--s1)}
+.empty .btn{margin-top:var(--s4)}
+/* ==== dialog (top-aligned + scrollable: keyboard only shrinks the visual viewport on Chrome 108+/iOS) ==== */
+.modal{position:fixed;top:0;right:0;bottom:0;left:0;z-index:90;background:var(--scrim);display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:calc(var(--s4) + var(--safe-t)) var(--s4) calc(var(--s4) + var(--safe-b))}
+.box{margin:auto;width:100%;max-width:480px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s6);box-shadow:var(--shadow-3)}
+.box h3{font-size:var(--fs-ttl);line-height:var(--lh-ttl);margin-bottom:var(--s3)}
+.box p{color:var(--text-2);font-size:15px;line-height:22px;margin:0 0 var(--s2)}
+.box .acts{margin-top:var(--s5)}
+.box .sep{border-top:1px solid var(--line);margin:var(--s5) 0 0;padding-top:var(--s4)}
+.box .danger-row{margin-top:var(--s6);padding-top:var(--s4);border-top:1px solid var(--line)}
+.stk{margin:12px 0}.stk .lbl{margin:0}.stk .v{margin:0 0 8px;overflow-wrap:anywhere;font-weight:500}
+.box .kv{grid-template-columns:96px minmax(0,1fr);grid-column-gap:var(--s2)}
+@media(max-width:479px){.modal{padding-left:var(--s3);padding-right:var(--s3)}.box{padding:var(--s4)}.box .acts:not(.row-keep){flex-direction:column-reverse}.box .acts>*{width:auto}}
+.sendopts>*+*{margin-top:var(--s2)}
+.sendopts .btn{display:flex;width:100%;justify-content:flex-start;text-align:left}
+.sendopts .btn .ic{margin:0 var(--s3) 0 0}
+.sendopts .btn small{display:block;font-size:13px;line-height:18px;font-weight:400;opacity:.9}
+.sendopts .btn.btn-pri small{opacity:1}
+.sendopts .btn>span{min-width:0;padding:6px 0}
+.mini{display:flex;flex-wrap:wrap;margin:var(--s2) -4px 0}
+.mini>*{margin:4px;flex:1 1 140px}
+.confirm-sent{margin-top:var(--s5);padding:var(--s4);border-radius:var(--r-md);background:var(--ok-soft);border:1px solid var(--ok-line)}
+.confirm-sent p{color:var(--text)}
+/* ==== snackbar ==== */
+.snack{position:fixed;left:var(--s4);right:var(--s4);bottom:calc(var(--h-nav) + var(--safe-b) + var(--s3));z-index:95;margin:0 auto;max-width:560px;
+  display:flex;align-items:center;min-height:48px;padding:4px var(--s1) 4px var(--s4);border-radius:var(--r-md);background:var(--inverse);color:var(--on-inverse);
+  box-shadow:var(--shadow-3);font-size:15px;line-height:20px;transform:translateY(8px);opacity:0;pointer-events:none;
+  transition:transform var(--d2) var(--ease-in),opacity var(--d2) var(--ease-in)}
+.snack.show{transform:none;opacity:1;pointer-events:auto;transition-duration:var(--d3);transition-timing-function:var(--ease-out)}
+.snack .st{margin-right:var(--s3);color:var(--inv-ok);flex:none}
+.snack.err .st{color:var(--inv-err)}
+.snack .tx{flex:1;padding:8px 0;min-width:0;word-break:break-word}
+.snack .act{background:none;border:0;color:var(--inv-act);font-weight:600;min-height:44px;padding:0 var(--s3);border-radius:var(--r-sm);flex:none}
+.snack .x{background:none;border:0;color:inherit;min-height:44px;min-width:44px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-sm);flex:none}
+body.v-pair .snack{bottom:calc(var(--s4) + var(--safe-b))}
+/* ==== pairing ==== */
+.hero{max-width:440px;margin:var(--s4) auto 0}
+.hero .hd{text-align:center;margin-bottom:var(--s5)}
+.hero .hd .brand{width:56px;height:56px;border-radius:var(--r-xl);margin:0 auto var(--s3)}
+.hero .hd .brand .ic{width:32px;height:32px}
+.hero .hd h2{font-size:var(--fs-h);line-height:var(--lh-h)}
+.or{display:flex;align-items:center;color:var(--text-2);font-size:var(--fs-sm);margin:var(--s4) 0}
+.or::before,.or::after{content:"";flex:1;border-top:1px solid var(--line)}
+.or span{padding:0 var(--s3)}
+/* ==== scan: idle card ==== */
+.pick{display:grid;grid-template-columns:1fr 1fr;grid-gap:var(--s2);margin-top:var(--s2)}
+@media(max-width:359px){.pick{grid-template-columns:1fr}}
+.sumrow{display:flex;align-items:center;flex-wrap:wrap}
+.sumrow .big{font-size:28px;line-height:32px;font-weight:600;font-variant-numeric:tabular-nums;margin-right:var(--s2)}
+.sumrow .sp{flex:1}
+/* ==== camera stage (same family as the LAN page, v3_08 §4) ==== */
+.stage{position:relative;overflow:hidden;background:#000;color:#fff;margin:calc(-1 * var(--s4)) calc(-1 * var(--s4)) 0;
+  height:calc(100vh - var(--h-top) - var(--h-nav) - var(--safe-b) - var(--safe-t));height:calc(100dvh - var(--h-top) - var(--h-nav) - var(--safe-b) - var(--safe-t))}
+body.v-pair .stage{height:calc(100vh - var(--h-top) - var(--safe-b) - var(--safe-t));height:calc(100dvh - var(--h-top) - var(--safe-b) - var(--safe-t))}
+.stage video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;display:block}
+.stage.mirror video{transform:scaleX(-1)}
+.aim{position:absolute;left:8%;right:8%;top:21%;height:46%;border-radius:12px;box-shadow:0 0 0 100vmax rgba(0,0,0,.40);pointer-events:none}
+.stage.qr .aim{left:50%;right:auto;width:min(70vw,60vh,320px);height:min(70vw,60vh,320px);margin-left:calc(min(70vw,60vh,320px) / -2);top:18%}
+.aim i{position:absolute;width:24px;height:24px;border:4px solid #fff}
+.aim i:nth-child(1){top:-2px;left:-2px;border-right:0;border-bottom:0;border-top-left-radius:12px}
+.aim i:nth-child(2){top:-2px;right:-2px;border-left:0;border-bottom:0;border-top-right-radius:12px}
+.aim i:nth-child(3){bottom:-2px;left:-2px;border-right:0;border-top:0;border-bottom-left-radius:12px}
+.aim i:nth-child(4){bottom:-2px;right:-2px;border-left:0;border-top:0;border-bottom-right-radius:12px}
+.aim::after{content:"";position:absolute;top:-6px;right:-6px;bottom:-6px;left:-6px;border-radius:16px;border:4px solid #3dd68c;opacity:0;transition:opacity 300ms var(--ease)}
+.stage.hit .aim::after{opacity:1;transition-duration:60ms}
+.stage.dup .aim::after{border-color:#ffca16;opacity:1;transition-duration:60ms}
+.stop,.sbot{position:absolute;left:var(--s3);right:var(--s3);display:flex;align-items:center;justify-content:space-between}
+.stop{top:var(--s3)}.sbot{bottom:var(--s4)}
+.sp{flex:1}
+.sbtn{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 var(--s3);border-radius:22px;
+  background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.32);color:#fff;font-size:15px;font-weight:600;text-decoration:none}
+.sbtn.t{min-height:48px;border-radius:24px;padding:0 14px}
+.sbtn .ic{width:22px;height:22px}
+.sbtn span{margin-left:6px}
+.sbtn[aria-pressed=true]{background:#fff;color:#000;border-color:#fff}
+.sbtn.nudge{box-shadow:0 0 0 2px #fff}
+.sbtn .cnt{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;margin-left:6px;border-radius:11px;background:#fff;color:#000;font-size:13px;font-variant-numeric:tabular-nums}
+.zseg{display:flex;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.32);border-radius:22px;padding:2px}
+.zseg button{min-width:48px;min-height:40px;border:0;border-radius:20px;background:none;color:#fff;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;padding:0 10px}
+.zseg button[aria-checked=true]{background:#fff;color:#000}
+.spill{position:absolute;left:50%;bottom:88px;transform:translateX(-50%);max-width:calc(100% - 32px);display:flex;align-items:center;background:rgba(0,0,0,.72);color:#fff;
+  font-size:15px;line-height:20px;font-weight:600;padding:8px 14px;border-radius:18px;white-space:nowrap;overflow:hidden}
+.spill .ic{width:18px;height:18px;margin-right:var(--s2);flex:none}
+.spill .dot{width:8px;height:8px;border-radius:50%;background:#b0b4ba;margin-right:var(--s2);flex:none}
+.spill span{overflow:hidden;text-overflow:ellipsis}
+.spill.ok .ic{color:#3dd68c}.spill.warn .ic{color:#ffca16}.spill.err .ic{color:#ff9592}
+.chelp{position:absolute;left:0;right:0;bottom:136px;display:flex;justify-content:center;flex-wrap:wrap}
+.chelp .sbtn{margin:4px 6px}
+.cpause{position:absolute;top:0;right:0;bottom:0;left:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center}
+.cpause button{background:none;border:0;color:#fff;font-size:17px;line-height:24px;min-height:64px;padding:var(--s4);max-width:320px}
+.cpause .ic{display:block;margin:0 auto var(--s2);width:40px;height:40px}
+body.scanning #scanidle,body.scanning #scanrest{display:none}
+body.scanning main{max-width:none}
+body.scanning #pairidle{display:none}
+@media(orientation:landscape) and (max-height:500px){
+  body.scanning{padding-bottom:0}
+  body.scanning .nav{display:none}
+  body.scanning .stage{height:calc(100vh - var(--h-top) - var(--safe-t));height:calc(100dvh - var(--h-top) - var(--safe-t))}
+  body.scanning .sbot{top:var(--s3);bottom:var(--s3);left:auto;flex-direction:column;justify-content:space-between}
+  body.scanning .sbot .sp{display:none}
+  body.scanning .zseg{flex-direction:column}
+  body.scanning .spill{bottom:var(--s4)}
+  body.scanning .chelp{bottom:64px}
+  body.scanning .snack{bottom:calc(var(--s4) + var(--safe-b))}
+}
+/* ==== history ==== */
+.hcard+.hcard{margin-top:var(--s3)}
+.hcard .hh{display:flex;align-items:flex-start}
+.hcard .hh>div{flex:1;min-width:0}
+.hcard .hh b{display:block;font-size:16px;line-height:24px}
+.hcard details{margin-top:var(--s2)}
+.hcard summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--accent-text);font-weight:500;list-style:none}
+.hcard summary::-webkit-details-marker{display:none}
+.hcard summary .ic{margin-left:var(--s2);transition:transform var(--d2) var(--ease)}
+.hcard details[open] summary .ic{transform:rotate(180deg)}
+.hcard ol{margin:0;padding-left:22px;font-size:var(--fs-sm);line-height:var(--lh-sm)}
+.hcard ol li{padding:2px 0;word-break:break-word}
+/* ==== basket send bar ==== */
+.sendbar{position:sticky;bottom:calc(var(--h-nav) + var(--safe-b));z-index:5;margin:var(--s4) calc(-1 * var(--s4)) 0;padding:var(--s3) var(--s4);
+  background:var(--bg);border-top:1px solid var(--line);display:flex;align-items:center}
+.sendbar .btn-pri{flex:1 1 auto;min-height:var(--h-ctl-lg);font-weight:600}
+.dz{margin-top:var(--s8);padding-top:var(--s4);border-top:1px dashed var(--line);display:flex;justify-content:center}
+/* ==== stock hints (catalog, V6 P1) ==== */
+.li .t3{grid-column:1 / span 2;display:flex;align-items:center;flex-wrap:wrap;margin-top:4px;font-size:var(--fs-sm);line-height:var(--lh-sm);color:var(--text-2);min-width:0}
+.li .t3 .tag{margin-right:var(--s2)}
+.li .t3>.ic{width:16px;height:16px;margin-right:4px;color:var(--accent-text)}
+.li.same{box-shadow:inset 4px 0 0 var(--warn)}
+.stockbox{margin-top:var(--s3)}
+/* ==== camera settings view (V6) ==== */
+.stage.cfg{margin:0 0 var(--s4);border-radius:var(--r-lg);height:min(52vh,420px)}
+.stage.cfg .aim,.stage.cfg #bstagebasket,.stage.cfg #bmanual,.stage.cfg #chelp,.stage.cfg #cpause,.stage.cfg #bcamset,.stage.cfg #zseg,.stage.cfg #btorch{display:none!important}
+.stage.cfg .spill{bottom:var(--s4)}
+.stage .fring{position:absolute;width:72px;height:72px;margin:-36px 0 0 -36px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.55),inset 0 0 0 1px rgba(0,0,0,.55);
+  pointer-events:none;opacity:0;transform:scale(1.35);transition:opacity var(--d3) var(--ease),transform var(--d3) var(--ease)}
+.stage .fring.on{opacity:1;transform:scale(1)}
+body.camcfg #bcfgcam{display:none}
+#campanel:empty{display:none}
+/* ==== settings: PC addresses, account ==== */
+.lanrow{display:flex;align-items:center}
+.lanrow+.lanrow{margin-top:var(--s2)}
+.lanrow input{flex:1 1 auto;min-width:0}
+.lanrow .btn-icon{margin-left:var(--s1);flex:none}
+.acct{display:flex;align-items:center;min-height:44px}
+.acct>.ic{color:var(--text-2);margin-right:var(--s3)}
+.acct>div{flex:1;min-width:0;overflow-wrap:anywhere}
+.redir{display:flex;align-items:center;margin-top:var(--s2)}
+.redir code{flex:1;min-width:0;font-family:var(--mono);font-size:14px;line-height:20px;overflow-wrap:anywhere;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:var(--s2)}
+.redir .btn-icon{flex:none;margin-left:var(--s1)}
+.hst{margin-top:var(--s2)}
+.hst .tag{margin-right:var(--s2)}
+/* ==== wide screens (remote PC) ==== */
+@media(min-width:840px){
+  body{padding-bottom:0;padding-left:var(--w-rail)}
+  body.v-pair{padding-left:0}
+  .nav{top:0;right:auto;width:var(--w-rail);height:auto;flex-direction:column;justify-content:flex-start;padding:calc(var(--h-top) + var(--s3)) 0 0;border-top:0;border-right:1px solid var(--line);z-index:19}
+  .nav button{flex:none;height:72px;min-height:72px}
+  .snack{bottom:var(--s6);left:calc(var(--w-rail) + var(--s6));right:auto;margin:0;min-width:344px;max-width:480px}
+  body.v-pair .snack{left:var(--s6)}
+  main{padding:var(--s6)}
+  .stage,body.v-pair .stage{margin:0;border-radius:var(--r-lg);height:auto;aspect-ratio:16/9;max-height:calc(100vh - var(--h-top) - 48px)}
+  .sendbar{bottom:0;margin:var(--s4) 0 0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface)}
+}
+/* ==== V7: cloud send, guide, collapsible sections ==== */
+.cloudbtn{display:flex;width:100%;min-height:72px;padding:var(--s3) var(--s4);justify-content:flex-start;text-align:left;font-weight:600}
+.cloudbtn>.ic{width:28px;height:28px;margin:0 var(--s3) 0 0}
+.cloudbtn>span{min-width:0;padding:4px 0}
+.cloudbtn b{display:block;font-size:18px;line-height:24px;font-weight:600}
+.cloudbtn small{display:block;font-size:14px;line-height:20px;font-weight:400;overflow-wrap:anywhere}
+.howto{display:flex;justify-content:center;margin-top:var(--s2)}
+.howto .btn{min-height:44px}
+.more{margin-top:var(--s4);border-top:1px solid var(--line)}
+.more>summary{display:flex;align-items:center;min-height:48px;cursor:pointer;color:var(--accent-text);font-weight:500;list-style:none;border-radius:var(--r-sm)}
+.more>summary::-webkit-details-marker{display:none}
+.more>summary>.ic:first-child{margin-right:var(--s2)}
+.more>summary .chev{margin-left:auto;transition:transform var(--d2) var(--ease)}
+.more[open]>summary .chev{transform:rotate(180deg)}
+.more>.inner{padding-top:var(--s2)}
+.card.more{border-top:1px solid var(--line);padding-top:var(--s2);padding-bottom:var(--s2)}
+.card.more>summary{font-size:var(--fs-ttl);color:var(--text);font-weight:600}
+.card.more>summary>.ic:first-child{color:var(--accent-text)}
+.card.more>.inner{padding-bottom:var(--s2)}
+.card.more>.inner>.sub+.sub{margin-top:var(--s5);padding-top:var(--s4);border-top:1px solid var(--line)}
+.card.more h4{font-size:var(--fs-body);line-height:var(--lh-body);margin:0 0 var(--s2);font-weight:600}
+.gsteps{list-style:none;margin:0;padding:0}
+.gsteps li{display:flex;align-items:flex-start;padding:var(--s3) 0}
+.gsteps li+li{border-top:1px solid var(--line)}
+.gsteps .gn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--on-accent);
+  font-size:20px;line-height:20px;font-weight:700;font-variant-numeric:tabular-nums;margin-right:var(--s3)}
+.gsteps .gb{flex:1;min-width:0;padding-top:2px}
+.gsteps b{display:flex;align-items:center;font-size:17px;line-height:24px;color:var(--text);font-weight:600}
+.gsteps b .ic{margin-right:var(--s2);color:var(--accent-text)}
+.gsteps .gt{display:block;font-size:15px;line-height:22px;color:var(--text-2);margin-top:2px}
+.box .gsteps{margin:var(--s2) 0 0}
+.card.gsteps{padding:var(--s1) var(--s4)}
+.lead{font-size:17px;line-height:24px;color:var(--text);margin-top:var(--s2)}
+.seg.g2{grid-auto-flow:row;grid-template-columns:1fr 1fr;grid-gap:3px}
+.seg.g2 label{min-height:44px;padding:0 6px;text-align:center}
+.fldrow{display:flex;align-items:center;min-height:44px;margin-top:var(--s2)}
+.fldrow>.ic{color:var(--accent-text);margin-right:var(--s3)}
+.fldrow>div{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:500}
+.sres{margin-top:var(--s3)}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:1ms!important;animation-duration:1ms!important;animation-iteration-count:1!important}
+  .spin{animation:none;border-top-color:var(--line)}}
+@media(forced-colors:active){
+  .btn,.tag,.seg label.on,.sbtn,.card,.box,.snack,.note,.ban,.conn{border:1px solid ButtonText}
+  .gsteps .gn{forced-color-adjust:none;background:Highlight;color:HighlightText}
+  .nav [aria-current=page] .pill{forced-color-adjust:none;background:Highlight;color:HighlightText}
+  .sbtn[aria-pressed=true],.zseg button[aria-checked=true]{forced-color-adjust:none;background:Highlight;color:HighlightText}
+  :focus-visible{outline:2px solid Highlight}
+  .ic{fill:CanvasText}button .ic{fill:ButtonText}
+  .badge{forced-color-adjust:none;background:Mark;color:MarkText}
+}
+@media(prefers-contrast:more){:root{--text-2:var(--text);--line:var(--line-ctl)}}
+</style>
+</head>
+<body class="v-pair">
+<!-- Fluent UI System Icons (@fluentui/svg-icons 1.1.344), MIT License, (c) Microsoft Corporation -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="n-scan" viewBox="0 0 24 24"><path d="M5.25 3.5c-.97 0-1.75.78-1.75 1.75v3a.75.75 0 0 1-1.5 0v-3C2 3.45 3.46 2 5.25 2h3a.75.75 0 0 1 0 1.5zm0 17c-.97 0-1.75-.78-1.75-1.75v-3a.75.75 0 0 0-1.5 0v3C2 20.55 3.46 22 5.25 22h3a.75.75 0 0 0 0-1.5zM20.5 5.25c0-.97-.78-1.75-1.75-1.75h-3a.75.75 0 0 1 0-1.5h3C20.55 2 22 3.46 22 5.25v3a.75.75 0 0 1-1.5 0zM18.75 20.5c.97 0 1.75-.78 1.75-1.75v-3a.75.75 0 0 1 1.5 0v3c0 1.8-1.46 3.25-3.25 3.25h-3a.75.75 0 0 1 0-1.5zM13 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0M9.73 7.68c.21-.42.64-.68 1.12-.68h2.3c.48 0 .9.26 1.12.68L14.76 9h.57c.92 0 1.67.6 1.67 1.5v3.86c0 .9-.75 1.64-1.67 1.64H8.67C7.75 16 7 15.27 7 14.36V10.5C7 9.6 7.75 9 8.67 9h.57zM10 12a2 2 0 1 0 4 0 2 2 0 0 0-4 0"/></symbol><symbol id="n-scan-f" viewBox="0 0 24 24"><path d="M5.25 4C4.56 4 4 4.56 4 5.25V8a1 1 0 0 1-2 0V5.25C2 3.45 3.46 2 5.25 2H8a1 1 0 0 1 0 2zm0 16C4.56 20 4 19.44 4 18.75V16a1 1 0 1 0-2 0v2.75C2 20.55 3.46 22 5.25 22H8a1 1 0 1 0 0-2zM20 5.25C20 4.56 19.44 4 18.75 4H16a1 1 0 1 1 0-2h2.75C20.55 2 22 3.46 22 5.25V8a1 1 0 1 1-2 0zM18.75 20c.69 0 1.25-.56 1.25-1.25V16a1 1 0 1 1 2 0v2.75c0 1.8-1.46 3.25-3.25 3.25H16a1 1 0 1 1 0-2zM12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2m-1.15-6c-.48 0-.9.26-1.12.68L9.24 9h-.57C7.75 9 7 9.6 7 10.5v3.86c0 .9.75 1.64 1.67 1.64h6.66c.92 0 1.67-.73 1.67-1.64V10.5c0-.9-.75-1.5-1.67-1.5h-.57l-.49-1.32A1.3 1.3 0 0 0 13.15 7zM12 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4"/></symbol><symbol id="n-set" viewBox="0 0 24 24"><path d="M12.01 2.25q1.11.01 2.18.25c.32.07.55.33.59.65l.17 1.53a1.38 1.38 0 0 0 1.92 1.11l1.4-.61c.3-.13.64-.06.85.17a10 10 0 0 1 2.2 3.8c.1.3 0 .63-.26.82l-1.25.92a1.38 1.38 0 0 0 0 2.22l1.25.92c.26.19.36.52.27.82a10 10 0 0 1-2.2 3.8.75.75 0 0 1-.85.17l-1.4-.62a1.38 1.38 0 0 0-1.93 1.12l-.17 1.52a.75.75 0 0 1-.58.65 9.5 9.5 0 0 1-4.4 0 .75.75 0 0 1-.57-.65l-.17-1.52a1.38 1.38 0 0 0-1.93-1.11l-1.4.62a.75.75 0 0 1-.85-.18 10 10 0 0 1-2.2-3.8c-.1-.3 0-.63.26-.82l1.25-.92a1.38 1.38 0 0 0 0-2.22l-1.24-.92a.75.75 0 0 1-.28-.82 10 10 0 0 1 2.2-3.8c.23-.23.57-.3.86-.17l1.4.62c.4.17.86.15 1.25-.08.38-.22.63-.6.68-1.04l.17-1.53a.75.75 0 0 1 .58-.65q1.08-.24 2.2-.25m0 1.5q-.67 0-1.35.12l-.11.97a2.9 2.9 0 0 1-4.03 2.33l-.9-.4A8 8 0 0 0 4.29 9.1l.8.59a2.88 2.88 0 0 1 0 4.64l-.8.59a8 8 0 0 0 1.35 2.32l.9-.4a2.88 2.88 0 0 1 4.02 2.32l.1.99q1.35.22 2.7 0l.1-.99a2.88 2.88 0 0 1 4.02-2.32l.9.4a8 8 0 0 0 1.35-2.32l-.8-.59a2.88 2.88 0 0 1 0-4.64l.8-.59a8 8 0 0 0-1.35-2.32l-.9.4q-.55.24-1.15.24c-1.47 0-2.7-1.1-2.86-2.57l-.11-.97q-.68-.11-1.34-.12M12 8.25a3.75 3.75 0 1 1 0 7.5 3.75 3.75 0 0 1 0-7.5m0 1.5a2.25 2.25 0 1 0 0 4.5 2.25 2.25 0 0 0 0-4.5"/></symbol><symbol id="n-set-f" viewBox="0 0 24 24"><path d="M12.01 2.25q1.11.01 2.18.25c.32.07.55.33.59.65l.17 1.53a1.38 1.38 0 0 0 1.92 1.11l1.4-.61c.3-.13.64-.06.85.17a10 10 0 0 1 2.2 3.8c.1.3 0 .63-.26.82l-1.25.92a1.38 1.38 0 0 0 0 2.22l1.25.92c.26.19.36.52.27.82a10 10 0 0 1-2.2 3.8.75.75 0 0 1-.85.17l-1.4-.62a1.38 1.38 0 0 0-1.93 1.12l-.17 1.52a.75.75 0 0 1-.58.65 9.5 9.5 0 0 1-4.4 0 .75.75 0 0 1-.57-.65l-.17-1.52a1.38 1.38 0 0 0-1.93-1.11l-1.4.62a.75.75 0 0 1-.85-.18 10 10 0 0 1-2.2-3.8c-.1-.3 0-.63.26-.82l1.25-.92a1.38 1.38 0 0 0 0-2.22l-1.24-.92a.75.75 0 0 1-.28-.82 10 10 0 0 1 2.2-3.8c.23-.23.57-.3.86-.17l1.4.62c.4.17.86.15 1.25-.08.38-.22.63-.6.68-1.04l.17-1.53a.75.75 0 0 1 .58-.65q1.08-.24 2.2-.25M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6"/></symbol><symbol id="i-camera" viewBox="0 0 20 20"><path d="M10 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8m-3 4a3 3 0 1 1 6 0 3 3 0 0 1-6 0m1.12-8a1.5 1.5 0 0 0-1.34.83L6.2 4H4.5A2.5 2.5 0 0 0 2 6.5v8A2.5 2.5 0 0 0 4.5 17h11a2.5 2.5 0 0 0 2.5-2.5v-8A2.5 2.5 0 0 0 15.5 4h-1.69l-.58-1.17A1.5 1.5 0 0 0 11.89 2zm-.44 1.28A.5.5 0 0 1 8.12 3h3.77q.3 0 .45.28l.72 1.44a.5.5 0 0 0 .45.28h2c.82 0 1.5.67 1.5 1.5v8c0 .83-.68 1.5-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5v-8C3 5.67 3.67 5 4.5 5h2a.5.5 0 0 0 .44-.28z"/></symbol><symbol id="i-camsw" viewBox="0 0 20 20"><path d="M14.85 2.15a.5.5 0 0 0-.7.7L15.29 4H4a2 2 0 0 0-2 2v6.5a.5.5 0 0 0 1 0V6a1 1 0 0 1 1-1h11.3l-1.15 1.15a.5.5 0 0 0 .7.7l2-2a.5.5 0 0 0 0-.7zM16 15a1 1 0 0 0 1-1V7.5a.5.5 0 0 1 1 0V14a2 2 0 0 1-2 2H4.7l1.15 1.15a.5.5 0 0 1-.7.7l-2-2a.5.5 0 0 1 0-.7l2-2a.5.5 0 0 1 .7.7L4.71 15zm-3-5a3 3 0 1 1-6 0 3 3 0 0 1 6 0m-1 0a2 2 0 1 0-4 0 2 2 0 0 0 4 0"/></symbol><symbol id="i-close" viewBox="0 0 20 20"><path d="m4.09 4.22.06-.07a.5.5 0 0 1 .63-.06l.07.06L10 9.29l5.15-5.14a.5.5 0 0 1 .63-.06l.07.06c.18.17.2.44.06.63l-.06.07L10.71 10l5.14 5.15c.18.17.2.44.06.63l-.06.07a.5.5 0 0 1-.63.06l-.07-.06L10 10.71l-5.15 5.14a.5.5 0 0 1-.63.06l-.07-.06a.5.5 0 0 1-.06-.63l.06-.07L9.29 10 4.15 4.85a.5.5 0 0 1-.06-.63l.06-.07z"/></symbol><symbol id="i-torch" viewBox="0 0 20 20"><path d="M14.46 1.67a.5.5 0 1 0-1 0v.83a.5.5 0 0 0 1 0zm3.4 1.18a.5.5 0 0 0-.71-.7l-1.5 1.5a.5.5 0 0 0 .7.7zm-10 10a.5.5 0 1 0-.71-.7l-1 1a.5.5 0 1 0 .7.7zM7 5v3.8l-4.3 4.29a2 2 0 0 0 0 2.82L4.1 17.3a2 2 0 0 0 2.82 0l4.3-4.3H15a.5.5 0 0 0 .35-.14l1.44-1.44a2 2 0 0 0 0-2.82L11.41 3.2a2 2 0 0 0-2.82 0L7.15 4.65A.5.5 0 0 0 7 5M9.3 3.9a1 1 0 0 1 1.4 0L16.1 9.3a1 1 0 0 1 0 1.42l-1.1 1.08L8.22 5zM8 6.21 13.8 12h-2.6L8 8.8zm-.5 3.5 2.8 2.79-4.1 4.09a1 1 0 0 1-1.4 0L3.4 15.2a1 1 0 0 1 0-1.42zm10-4.17a.5.5 0 1 0 0 1h.83a.5.5 0 1 0 0-1z"/></symbol><symbol id="i-torch-f" viewBox="0 0 20 20"><path d="M13.96 1.17c.27 0 .5.22.5.5v.83a.5.5 0 1 1-1 0v-.83c0-.28.22-.5.5-.5m3.9.98c.19.2.19.5 0 .7l-1.5 1.5a.5.5 0 1 1-.71-.7l1.5-1.5c.2-.2.5-.2.7 0M7 5.2v2.58l5.2 5.2h2.6zm8.7 7.29 1.1-1.09a2 2 0 0 0 0-2.82L11.4 3.2a2 2 0 0 0-2.82 0L7.5 4.29zm-4.7.7L6.8 9l-4.1 4.09a2 2 0 0 0 0 2.82L4.1 17.3a2 2 0 0 0 2.82 0zm-3.15-.35-1 1a.5.5 0 0 1-.7-.7l1-1a.5.5 0 1 1 .7.7M17 6.05c0-.29.22-.5.5-.5h.83a.5.5 0 1 1 0 1h-.83a.5.5 0 0 1-.5-.5"/></symbol><symbol id="i-kbd" viewBox="0 0 20 20"><path d="M5 12.5c0-.28.22-.5.5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5M11.5 8a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5m3.75-.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0M5.5 8a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5m2.25 1.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0m2.25.75A.75.75 0 1 0 10 9a.75.75 0 0 0 0 1.5m3.76-.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0M8.5 8a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M2 5.5C2 4.67 2.67 4 3.5 4h13c.83 0 1.5.67 1.5 1.5v8c0 .83-.67 1.5-1.5 1.5h-13A1.5 1.5 0 0 1 2 13.5zM3.5 5a.5.5 0 0 0-.5.5v8c0 .28.22.5.5.5h13a.5.5 0 0 0 .5-.5v-8a.5.5 0 0 0-.5-.5z"/></symbol><symbol id="i-check" viewBox="0 0 20 20"><path d="M3.37 10.17a.5.5 0 0 0-.74.66l4 4.5c.19.22.52.23.72.02l10.5-10.5a.5.5 0 0 0-.7-.7L7.02 14.27z"/></symbol><symbol id="i-warn" viewBox="0 0 20 20"><path d="M7.37 3.56a3 3 0 0 1 5.26 0l5.5 10A3 3 0 0 1 15.5 18h-11a3 3 0 0 1-2.63-4.44zm4.38.48a2 2 0 0 0-3.5 0l-5.5 10A2 2 0 0 0 4.5 17h11a2 2 0 0 0 1.75-2.96zM10 12.75a.75.75 0 1 1 0 1.5.75.75 0 0 1 0-1.5m0-6.25c.28 0 .5.22.5.5v4a.5.5 0 0 1-1 0V7c0-.28.22-.5.5-.5"/></symbol><symbol id="i-err" viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16m0 1a7 7 0 1 0 0 14 7 7 0 0 0 0-14m0 9.5a.75.75 0 1 1 0 1.5.75.75 0 0 1 0-1.5M10 6a.5.5 0 0 1 .5.41V11a.5.5 0 0 1-1 .09V6.5c0-.28.22-.5.5-.5"/></symbol><symbol id="i-ok" viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16m0 1a7 7 0 1 0 0 14 7 7 0 0 0 0-14m3.36 4.65c.17.17.2.44.06.63l-.06.07-4 4a.5.5 0 0 1-.64.07l-.07-.06-2-2a.5.5 0 0 1 .63-.77l.07.06L9 11.3l3.65-3.65c.2-.2.51-.2.7 0"/></symbol><symbol id="i-info" viewBox="0 0 20 20"><path d="M10.5 8.91a.5.5 0 0 0-1 .09v4.6a.5.5 0 0 0 1-.1V8.91m.3-2.16a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0M18 10a8 8 0 1 0-16 0 8 8 0 0 0 16 0M3 10a7 7 0 1 1 14 0 7 7 0 0 1-14 0"/></symbol><symbol id="i-copy" viewBox="0 0 20 20"><path d="M7 7H5.5C4.67 7 4 7.67 4 8.5v6c0 .83.67 1.5 1.5 1.5h4c.65 0 1.2-.42 1.41-1h1.04a2.5 2.5 0 0 1-2.45 2h-4A2.5 2.5 0 0 1 3 14.5v-6A2.5 2.5 0 0 1 5.5 6H7zm7.5-4A2.5 2.5 0 0 1 17 5.5v6a2.5 2.5 0 0 1-2.5 2.5h-4A2.5 2.5 0 0 1 8 11.5v-6A2.5 2.5 0 0 1 10.5 3zm-4 1C9.67 4 9 4.67 9 5.5v6c0 .83.67 1.5 1.5 1.5h4c.83 0 1.5-.67 1.5-1.5v-6c0-.83-.67-1.5-1.5-1.5z"/></symbol><symbol id="i-del" viewBox="0 0 20 20"><path d="M8.5 4h3a1.5 1.5 0 0 0-3 0m-1 0a2.5 2.5 0 0 1 5 0h5a.5.5 0 0 1 0 1h-1.05l-1.2 10.34A3 3 0 0 1 12.27 18H7.73a3 3 0 0 1-2.98-2.66L3.55 5H2.5a.5.5 0 0 1 0-1zM5.74 15.23A2 2 0 0 0 7.73 17h4.54a2 2 0 0 0 1.99-1.77L15.44 5H4.56zM8.5 7.5c.28 0 .5.22.5.5v6a.5.5 0 0 1-1 0V8c0-.28.22-.5.5-.5M12 8a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/></symbol><symbol id="i-photo" viewBox="0 0 20 20"><path d="M14 7.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m-1 0a.5.5 0 1 0-1 0 .5.5 0 0 0 1 0M3 6a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3zm3-2a2 2 0 0 0-2 2v8q0 .56.28 1.02l4.67-4.59a1.5 1.5 0 0 1 2.1 0l4.67 4.59Q16 14.56 16 14V6a2 2 0 0 0-2-2zm0 12h8a2 2 0 0 0 1.01-.27l-4.66-4.58a.5.5 0 0 0-.7 0l-4.66 4.58A2 2 0 0 0 6 16"/></symbol><symbol id="i-sun" viewBox="0 0 20 20"><path d="M10 2c.28 0 .5.22.5.5v1a.5.5 0 0 1-1 0v-1c0-.28.22-.5.5-.5m0 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8m0-1a3 3 0 1 1 0-6 3 3 0 0 1 0 6m7.5-2.5a.5.5 0 0 0 0-1h-1a.5.5 0 0 0 0 1zM10 16c.28 0 .5.22.5.5v1a.5.5 0 0 1-1 0v-1c0-.28.22-.5.5-.5m-6.5-5.5a.5.5 0 0 0 0-1H2.46a.5.5 0 0 0 0 1zm.65-6.35c.2-.2.5-.2.7 0l1 1a.5.5 0 1 1-.7.7l-1-1a.5.5 0 0 1 0-.7m.7 11.7a.5.5 0 0 1-.7-.7l1-1a.5.5 0 0 1 .7.7zm11-11.7a.5.5 0 0 0-.7 0l-1 1a.5.5 0 0 0 .7.7l1-1a.5.5 0 0 0 0-.7m-.7 11.7a.5.5 0 0 0 .7-.7l-1-1a.5.5 0 0 0-.7.7z"/></symbol><symbol id="i-moon" viewBox="0 0 20 20"><path d="M15.5 13.5A6.98 6.98 0 0 1 4 14.39c2.83-1.09 4.56-2.42 5.6-4.4 1.04-2 1.33-4.16.75-6.9q1.36.17 2.58.87a7 7 0 0 1 2.55 9.54M5.45 16.92A7.98 7.98 0 1 0 9.88 2.04a.6.6 0 0 0-.61.73c.69 2.82.43 4.88-.55 6.76-.94 1.78-2.55 3.03-5.55 4.1a.6.6 0 0 0-.3.9 8 8 0 0 0 2.59 2.39"/></symbol><symbol id="i-desk" viewBox="0 0 20 20"><path d="M4 2a2 2 0 0 0-2 2v9c0 1.1.9 2 2 2h3v2H5.5a.5.5 0 0 0 0 1h9a.5.5 0 0 0 0-1H13v-2h3a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm8 13v2H8v-2zM3 4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></symbol><symbol id="i-edit" viewBox="0 0 20 20"><path d="M17.18 2.93a2.97 2.97 0 0 0-4.26-.06l-9.37 9.38q-.5.5-.66 1.2l-.88 3.94a.5.5 0 0 0 .6.6l3.93-.87c.46-.1.9-.34 1.23-.68l9.36-9.36a2.97 2.97 0 0 0 .05-4.15m-3.55.65a1.97 1.97 0 1 1 2.8 2.8l-.68.66-2.8-2.79zm-1.38 1.38 2.8 2.8-7.99 7.97q-.31.31-.74.41l-3.16.7.7-3.18q.1-.41.4-.7z"/></symbol><symbol id="i-key" viewBox="0 0 20 20"><path d="M15 6a1 1 0 1 1-2 0 1 1 0 0 1 2 0m-2.5-4a5.45 5.45 0 0 0-5.38 6.67q.08.42-.14.64l-4.54 4.54A1.5 1.5 0 0 0 2 14.91v1.59c0 .83.67 1.5 1.5 1.5h2c.83 0 1.5-.67 1.5-1.5V16h1a1 1 0 0 0 1-1v-1h1a1 1 0 0 0 1-1v-.18q.75.19 1.5.18c3.08 0 5.5-2.42 5.5-5.5S15.58 2 12.5 2M8 7.5C8 4.98 9.98 3 12.5 3S17 4.98 17 7.5 15.02 12 12.5 12q-1 .01-1.78-.35a.5.5 0 0 0-.72.45v.9H9a1 1 0 0 0-1 1v1H7a1 1 0 0 0-1 1v.5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1-.5-.5v-1.59a.5.5 0 0 1 .15-.35l4.54-4.54c.43-.43.52-1.04.4-1.56Q8 8 8 7.5"/></symbol><symbol id="i-lock" viewBox="0 0 24 24"><path d="M12 1a5 5 0 0 1 5 5v2.01c1.68.13 3 1.53 3 3.24v7.5c0 1.8-1.46 3.25-3.25 3.25h-9.5A3.25 3.25 0 0 1 4 18.75v-7.5a3.25 3.25 0 0 1 3-3.24V6a5 5 0 0 1 5-5M7.25 9.5c-.97 0-1.75.78-1.75 1.75v7.5c0 .97.78 1.75 1.75 1.75h9.5c.97 0 1.75-.78 1.75-1.75v-7.5c0-.97-.78-1.75-1.75-1.75zM12 13.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5M12 2.5A3.5 3.5 0 0 0 8.5 6v2h7V6A3.5 3.5 0 0 0 12 2.5"/></symbol><symbol id="i-chev" viewBox="0 0 20 20"><path d="M15.85 7.65c.2.2.2.5 0 .7l-5.46 5.49a.55.55 0 0 1-.78 0L4.15 8.35a.5.5 0 1 1 .7-.7L10 12.8l5.15-5.16c.2-.2.5-.2.7 0"/></symbol><symbol id="i-pause" viewBox="0 0 20 20"><path d="M5 2a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h2a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM4 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1zm9-2a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h2a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-1 2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1z"/></symbol><symbol id="i-add" viewBox="0 0 20 20"><path d="M10 2.5c.28 0 .5.22.5.5v6.5H17a.5.5 0 0 1 0 1h-6.5V17a.5.5 0 0 1-1 0v-6.5H3a.5.5 0 0 1 0-1h6.5V3c0-.28.22-.5.5-.5"/></symbol><symbol id="i-sync" viewBox="0 0 20 20"><path d="M11.41 3.64a.5.5 0 0 0 0-.71L9.3.8a.5.5 0 0 0-.7.7l1 1a7.5 7.5 0 0 0-4.08 13.5.5.5 0 0 0 .6-.8A6.5 6.5 0 0 1 10.14 3.5L8.59 5.04a.5.5 0 0 0 .7.7zM8.6 16.36a.5.5 0 0 0 0 .71l2.12 2.12a.5.5 0 0 0 .7-.7l-1-1a7.5 7.5 0 0 0 4.07-13.5.5.5 0 1 0-.59.8q.37.28.7.61a6.5 6.5 0 0 1-4.73 11.1l1.55-1.55a.5.5 0 1 0-.7-.7z"/></symbol><symbol id="i-signout" viewBox="0 0 20 20"><path d="M8.5 11.25a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M11 3.5a.5.5 0 0 0-.58-.5l-7 1.08a.5.5 0 0 0-.42.49v10.86c0 .25.18.46.42.5l7 1.07a.5.5 0 0 0 .58-.5V10h5.17l-1 .87a.5.5 0 0 0 .66.76l2-1.75a.5.5 0 0 0 0-.76l-2-1.75a.5.5 0 1 0-.65.76l1 .87H11zm-1 .58v11.84L4 15V5zM12.5 16H12v-5h1v4.5a.5.5 0 0 1-.5.5M12 8V4h.5c.28 0 .5.22.5.5V8z"/></symbol><symbol id="i-off" viewBox="0 0 20 20"><path d="M17.85 2.15c.2.2.2.5 0 .7L16.2 4.52a4.04 4.04 0 0 1-.34 5.33l-.3.3-.3.31c-.42.41-1.08.41-1.5 0L9.55 6.24a1.05 1.05 0 0 1 0-1.48l.6-.61a4.04 4.04 0 0 1 5.34-.34l1.67-1.66c.2-.2.5-.2.7 0m-2.71 2.7a3.04 3.04 0 0 0-4.29 0l-.3.3c-.19.2-.19.5 0 .7l3.6 3.6c.2.19.5.19.7 0l.3-.3a3.04 3.04 0 0 0 0-4.29zm-5.79 3.8c.2.2.2.5 0 .7L7.71 11 9 12.3l1.65-1.65a.5.5 0 0 1 .7.7L9.71 13l.44.45c.59.58.59 1.52 0 2.1l-.3.3a4.04 4.04 0 0 1-5.33.34l-1.67 1.66a.5.5 0 0 1-.7-.7l1.66-1.67a4.04 4.04 0 0 1 .34-5.33l.3-.3a1.5 1.5 0 0 1 2.1 0l.45.44 1.65-1.64c.2-.2.5-.2.7 0m-4.5 6.5a3.04 3.04 0 0 0 4.3 0l.3-.3c.19-.2.19-.5 0-.7l-3.6-3.6c-.2-.19-.5-.19-.7 0l-.3.3a3.04 3.04 0 0 0 0 4.3"/></symbol><symbol id="i-save" viewBox="0 0 20 20"><path d="M3 5c0-1.1.9-2 2-2h8.38a2 2 0 0 1 1.41.59l1.62 1.62A2 2 0 0 1 17 6.62V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1v-4.5c0-.83.67-1.5 1.5-1.5h7c.83 0 1.5.67 1.5 1.5V16a1 1 0 0 0 1-1V6.62a1 1 0 0 0-.3-.7L14.1 4.28a1 1 0 0 0-.71-.29H13v2.5c0 .83-.67 1.5-1.5 1.5h-4A1.5 1.5 0 0 1 6 6.5V4zm2 0v2.5c0 .28.22.5.5.5h4a.5.5 0 0 0 .5-.5V4zm7 12v-4.5a.5.5 0 0 0-.5-.5h-7a.5.5 0 0 0-.5.5V16z"/></symbol><symbol id="i-mail" viewBox="0 0 20 20"><path d="M15.5 4A2.5 2.5 0 0 1 18 6.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 14.5v-8A2.5 2.5 0 0 1 4.5 4zM17 7.96l-6.75 3.97a.5.5 0 0 1-.42.04l-.08-.04L3 7.96v6.54c0 .83.67 1.5 1.5 1.5h11c.83 0 1.5-.67 1.5-1.5zM15.5 5h-11C3.67 5 3 5.67 3 6.5v.3l7 4.12 7-4.12v-.3c0-.83-.67-1.5-1.5-1.5"/></symbol><symbol id="i-share" viewBox="0 0 20 20"><path d="M9.5 3a.5.5 0 0 1 0 1H6a2 2 0 0 0-2 2v8c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2v-1.5a.5.5 0 0 1 1 0V14a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3zm3.8-.96a.5.5 0 0 1 .53.09l5 4.5a.5.5 0 0 1 0 .74l-5 4.5a.5.5 0 0 1-.83-.37V9.34c-1.4.13-2.67.78-3.7 1.6a10 10 0 0 0-2.2 2.5l-.15.28A.5.5 0 0 1 6 13.5c0-2.05.38-4.28 1.52-6.02A6.6 6.6 0 0 1 13 4.5V2.43a.5.5 0 0 1 .3-.39M14 5a.5.5 0 0 1-.5.5c-2.59 0-4.18 1.05-5.14 2.52a9 9 0 0 0-1.25 3.69 11 11 0 0 1 1.56-1.54 7.8 7.8 0 0 1 4.83-1.85c.28 0 .5.22.5.5v1.56L17.75 7 14 3.62z"/></symbol><symbol id="i-cart" viewBox="0 0 20 20"><path d="M3 3.5c0-.28.22-.5.5-.5h.44c.72 0 1.14.47 1.38.94.17.32.29.72.39 1.06H16a1 1 0 0 1 .96 1.27l-1.5 5.28A2 2 0 0 1 13.55 13H8.46a2 2 0 0 1-1.93-1.47L5.9 9.17l-.01-.03-1.03-3.5-.1-.33a5 5 0 0 0-.32-.91c-.16-.31-.3-.4-.5-.4H3.5a.5.5 0 0 1-.5-.5m3.84 5.37.66 2.4a1 1 0 0 0 .96.73h5.08a1 1 0 0 0 .96-.73L16 6H6zM10 15.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m-1 0a.5.5 0 1 0-1 0 .5.5 0 0 0 1 0m6 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m-1 0a.5.5 0 1 0-1 0 .5.5 0 0 0 1 0"/></symbol><symbol id="n-cart" viewBox="0 0 24 24"><path d="M2.5 4.25c0-.41.34-.75.75-.75h.56c.95 0 1.52.64 1.84 1.23.22.4.38.86.5 1.27h12.6c.83 0 1.43.8 1.2 1.6L18.12 14a2.75 2.75 0 0 1-2.64 2H9.53a2.75 2.75 0 0 1-2.65-2.02l-.76-2.78-1.26-4.24v-.01c-.16-.57-.3-1.1-.52-1.5C4.13 5.07 3.96 5 3.8 5h-.56a.75.75 0 0 1-.75-.75m5.07 6.59.75 2.74c.15.54.65.92 1.21.92h5.95c.56 0 1.05-.37 1.2-.9l1.74-6.1H6.59l.97 3.29zM11 19a2 2 0 1 1-4 0 2 2 0 0 1 4 0m-1.5 0a.5.5 0 1 0-1 0 .5.5 0 0 0 1 0m8.5 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0m-1.5 0a.5.5 0 1 0-1 0 .5.5 0 0 0 1 0"/></symbol><symbol id="n-cart-f" viewBox="0 0 24 24"><path d="M2.5 4.25c0-.41.34-.75.75-.75h.56c.95 0 1.52.64 1.84 1.23.22.4.38.86.5 1.27h12.6c.83 0 1.43.8 1.2 1.6L18.12 14a2.75 2.75 0 0 1-2.64 2H9.53a2.75 2.75 0 0 1-2.65-2.02l-.76-2.78-1.26-4.24v-.01c-.16-.57-.3-1.1-.52-1.5C4.13 5.07 3.96 5 3.8 5h-.56a.75.75 0 0 1-.75-.75M9 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4m7 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4"/></symbol><symbol id="n-hist" viewBox="0 0 24 24"><path d="M12 4.5a7.5 7.5 0 1 1-7.42 6.4c.07-.46-.26-.9-.72-.9-.37 0-.7.26-.76.62Q3 11.3 3 12a9 9 0 1 0 3-6.7V4.24a.75.75 0 0 0-1.5 0v3c0 .41.34.75.75.75h3a.75.75 0 0 0 0-1.5H6.9a7.5 7.5 0 0 1 5.1-2m.5 3.25a.75.75 0 0 0-1.5 0v4.5c0 .41.34.75.75.75h3a.75.75 0 0 0 0-1.5H12.5z"/></symbol><symbol id="n-hist-f" viewBox="0 0 24 24"><path d="M12 5a7 7 0 1 1-6.95 6.12 1 1 0 1 0-1.98-.24Q3 11.42 3 12a9 9 0 1 0 4-7.48V4a1 1 0 0 0-2 0v3a1 1 0 0 0 1 1h3a1 1 0 0 0 0-2h-.6c1.05-.64 2.28-1 3.6-1m1 3a1 1 0 1 0-2 0v4a1 1 0 0 0 1 1h2.5a1 1 0 1 0 0-2H13z"/></symbol><symbol id="i-qr" viewBox="0 0 20 20"><path d="M11 15h2v2h-2zm4 0h2v2h-2zm-4-4h2v2h-2zm2 2h2v2h-2zm2-2h2v2h-2zM3 5c0-1.1.9-2 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1zm0 1h2v2H5zm-2 8c0-1.1.9-2 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1zm0 1h2v2H5zm6-8c0-1.1.9-2 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1zm0 1h2v2h-2z"/></symbol><symbol id="i-send" viewBox="0 0 20 20"><path d="M2.18 2.11a.5.5 0 0 1 .54-.06l15 7.5a.5.5 0 0 1 0 .9l-15 7.5a.5.5 0 0 1-.7-.58L3.98 10 2.02 2.63a.5.5 0 0 1 .16-.52m2.7 8.39-1.61 6.06L16.38 10 3.27 3.44 4.88 9.5h6.62a.5.5 0 1 1 0 1z"/></symbol><symbol id="i-dl" viewBox="0 0 20 20"><path d="M15.5 17a.5.5 0 0 1 .09 1H4.5a.5.5 0 0 1-.09-1H15.5M10 2a.5.5 0 0 1 .5.41V14.3l3.64-3.65a.5.5 0 0 1 .64-.06l.07.06c.17.17.2.44.06.63l-.06.07-4.5 4.5a.5.5 0 0 1-.25.14L10 16a.5.5 0 0 1-.4-.2l-4.46-4.45a.5.5 0 0 1 .64-.76l.07.06 3.65 3.64V2.5c0-.27.22-.5.5-.5"/></symbol><symbol id="i-hist" viewBox="0 0 20 20"><path d="M10 4a6 6 0 1 1-5.98 5.54.5.5 0 1 0-1-.08L3 10a7 7 0 1 0 2-4.9V3.5a.5.5 0 0 0-1 0v3c0 .28.22.5.5.5h3a.5.5 0 0 0 0-1H5.53c1.1-1.23 2.7-2 4.47-2m0 2.5a.5.5 0 0 0-1 0v4c0 .28.22.5.5.5h3a.5.5 0 0 0 0-1H10z"/></symbol><symbol id="n-cam" viewBox="0 0 24 24"><path d="M13.92 2.5c.8 0 1.54.43 1.94 1.11l.82 1.4h2.07C20.55 5 22 6.45 22 8.24v9.5c0 1.8-1.46 3.25-3.25 3.25H5.25A3.25 3.25 0 0 1 2 17.75v-9.5C2 6.45 3.46 5 5.25 5h2.08l.88-1.42a2.3 2.3 0 0 1 1.91-1.08zm0 1.5h-3.8q-.34 0-.57.27l-.07.1-1.1 1.77a.8.8 0 0 1-.63.36h-2.5c-.97 0-1.75.78-1.75 1.75v9.5c0 .97.78 1.75 1.75 1.75h13.5c.97 0 1.75-.78 1.75-1.75v-9.5c0-.97-.78-1.75-1.75-1.75h-2.5a.8.8 0 0 1-.65-.37l-1.03-1.76a.8.8 0 0 0-.65-.37M12 8a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9m0 1.5a3 3 0 1 0 0 6 3 3 0 0 0 0-6"/></symbol><symbol id="n-cam-f" viewBox="0 0 24 24"><path d="M13.92 2.5c.8 0 1.54.43 1.94 1.11l.82 1.4h2.07C20.55 5 22 6.45 22 8.24v9.5c0 1.8-1.46 3.25-3.25 3.25H5.25A3.25 3.25 0 0 1 2 17.75v-9.5C2 6.45 3.46 5 5.25 5h2.08l.88-1.42a2.3 2.3 0 0 1 1.91-1.08zM12 8a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9m0 1.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6"/></symbol><symbol id="i-box" viewBox="0 0 20 20"><path d="M11.3 2.48a3.5 3.5 0 0 0-2.6 0l-5.76 2.3A1.5 1.5 0 0 0 2 6.18v7.64c0 .62.37 1.17.94 1.4l5.76 2.3a3.5 3.5 0 0 0 2.6 0l5.76-2.3c.57-.23.94-.78.94-1.4V6.18a1.5 1.5 0 0 0-.94-1.4zm-2.23.93a2.5 2.5 0 0 1 1.86 0l5.22 2.09-2.27.91-6.16-2.46zm-2.7 1.08 6.16 2.46L10 7.96 3.85 5.5zm4.13 4.35 6.5-2.6v7.58a.5.5 0 0 1-.31.47l-5.76 2.3q-.2.09-.43.13zm-1 0v7.88a3 3 0 0 1-.43-.13l-5.76-2.3a.5.5 0 0 1-.31-.47V6.24z"/></symbol><symbol id="i-shield" viewBox="0 0 20 20"><path d="M9.72 2.08a.5.5 0 0 1 .56 0q2.9 1.94 6.3 2.43A.5.5 0 0 1 17 5v4.6q-.48-.25-1-.4V5.44a16 16 0 0 1-5.6-2.08L10 3.1l-.4.25A16 16 0 0 1 4 5.43V9.5c0 3.24 1.8 5.64 5.48 7.25q.3.65.74 1.2l-.04.02a.5.5 0 0 1-.36 0C5.31 16.23 3 13.39 3 9.5V5a.5.5 0 0 1 .43-.5 15 15 0 0 0 6.3-2.42M19 14.5a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0m-2.15-1.85a.5.5 0 0 0-.7 0l-2.65 2.64-.65-.64a.5.5 0 0 0-.7.7l1 1c.2.2.5.2.7 0l3-3a.5.5 0 0 0 0-.7"/></symbol><symbol id="i-person" viewBox="0 0 20 20"><path d="M10 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8M7 6a3 3 0 1 1 6 0 3 3 0 0 1-6 0m-2 5a2 2 0 0 0-2 2c0 1.7.83 2.97 2.13 3.8A9 9 0 0 0 10 18c1.85 0 3.58-.39 4.87-1.2A4.4 4.4 0 0 0 17 13a2 2 0 0 0-2-2zm-1 2a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1c0 1.3-.62 2.28-1.67 2.95A8 8 0 0 1 10 17a8 8 0 0 1-4.33-1.05A3.4 3.4 0 0 1 4 13"/></symbol><symbol id="i-link" viewBox="0 0 20 20"><path d="M8 6a.5.5 0 0 1 .09 1H6a3 3 0 0 0-.2 6H8a.5.5 0 0 1 .09 1H6a4 4 0 0 1-.22-8H8m6 0a4 4 0 0 1 .22 8H12a.5.5 0 0 1-.09-1H14a3 3 0 0 0 .2-6H12a.5.5 0 0 1-.09-1H14M6 9.5h8a.5.5 0 0 1 .09 1H6a.5.5 0 0 1-.09-1zh8z"/></symbol><symbol id="i-resync" viewBox="0 0 20 20"><path d="M11.41 3.64a.5.5 0 0 0 0-.71L9.3.8a.5.5 0 0 0-.7.7l1 1a7.5 7.5 0 0 0-4.08 13.5.5.5 0 0 0 .6-.8A6.5 6.5 0 0 1 10.14 3.5L8.59 5.04a.5.5 0 0 0 .7.7zM8.6 16.36a.5.5 0 0 0 0 .71l2.12 2.12a.5.5 0 0 0 .7-.7l-1-1a7.5 7.5 0 0 0 4.07-13.5.5.5 0 1 0-.59.8q.37.28.7.61a6.5 6.5 0 0 1-4.73 11.1l1.55-1.55a.5.5 0 1 0-.7-.7z"/></symbol><symbol id="i-cloudup" viewBox="0 0 20 20"><path d="M10 2c2.82 0 4.41 1.92 4.65 4.25h.07a3.33 3.33 0 0 1 3.27 3.66q-.48-.6-1.12-1.07a2.3 2.3 0 0 0-2.15-1.6h-.07a1 1 0 0 1-1-.9C13.45 4.33 12.11 3 10 3S6.55 4.32 6.35 6.35a1 1 0 0 1-1 .9h-.07A2.33 2.33 0 0 0 3 9.62 2.33 2.33 0 0 0 5.28 12h2.67q-.14.49-.18 1H5.28A3.33 3.33 0 0 1 2 9.62c0-1.8 1.37-3.27 3.1-3.37h.25C5.6 3.9 7.18 2 10 2m3.5 7a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9m1.6 4.9a.56.56 0 1 0 .8-.8l-2-2a.56.56 0 0 0-.8 0l-2 2a.56.56 0 1 0 .8.8l1.1-1.1v2.7a.5.5 0 0 0 1 0v-2.7z"/></symbol><symbol id="i-cloud" viewBox="0 0 20 20"><path d="M10 4c2.82 0 4.41 1.92 4.65 4.25h.07A3.33 3.33 0 0 1 18 11.62 3.33 3.33 0 0 1 14.72 15H5.28A3.33 3.33 0 0 1 2 11.62c0-1.8 1.37-3.27 3.1-3.37h.25C5.6 5.9 7.18 4 10 4m0 1C7.89 5 6.55 6.32 6.35 8.35a1 1 0 0 1-1 .9h-.07A2.33 2.33 0 0 0 3 11.62 2.33 2.33 0 0 0 5.28 14h9.44A2.33 2.33 0 0 0 17 11.62a2.33 2.33 0 0 0-2.28-2.37h-.07a1 1 0 0 1-1-.9C13.45 6.32 12.11 5 10 5"/></symbol><symbol id="i-folder" viewBox="0 0 20 20"><path d="M4.5 3A2.5 2.5 0 0 0 2 5.5v9A2.5 2.5 0 0 0 4.5 17h11a2.5 2.5 0 0 0 2.5-2.5v-7A2.5 2.5 0 0 0 15.5 5H9.7L8.23 3.51A1.8 1.8 0 0 0 6.98 3zM3 5.5C3 4.67 3.67 4 4.5 4h2.48q.32 0 .53.22L8.8 5.5 7.44 6.85a.5.5 0 0 1-.35.15H3zM3 8h4.09c.4 0 .78-.16 1.06-.44L9.7 6h5.79c.83 0 1.5.67 1.5 1.5v7c0 .83-.67 1.5-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5z"/></symbol><symbol id="i-folderopen" viewBox="0 0 20 20"><path d="M3 5.5v6.6l1.5-2.6A3 3 0 0 1 7.1 8H15v-.5c0-.83-.67-1.5-1.5-1.5h-4a.5.5 0 0 1-.35-.15l-1.71-1.7A.5.5 0 0 0 7.09 4H4.5C3.67 4 3 4.67 3 5.5m1.28 10.48.22.02h9.4a2 2 0 0 0 1.73-1l2.17-3.75A1.5 1.5 0 0 0 16.5 9H7.1a2 2 0 0 0-1.73 1L3.2 13.75a1.5 1.5 0 0 0 1.08 2.23M2 14.46V5.5A2.5 2.5 0 0 1 4.5 3h2.59c.4 0 .78.16 1.06.44L9.7 5h3.79A2.5 2.5 0 0 1 16 7.5V8h.5a2.5 2.5 0 0 1 2.16 3.75L16.5 15.5a3 3 0 0 1-2.6 1.5H4.5a2.5 2.5 0 0 1-1.62-.6A2.5 2.5 0 0 1 2 14.46"/></symbol><symbol id="i-help" viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16m0 1a7 7 0 1 0 0 14 7 7 0 0 0 0-14m0 10.5a.75.75 0 1 1 0 1.5.75.75 0 0 1 0-1.5m0-8a2.5 2.5 0 0 1 1.65 4.38l-.15.12-.22.17-.09.07-.16.15c-.33.36-.53.85-.53 1.61a.5.5 0 0 1-1 0 3.2 3.2 0 0 1 1.16-2.62l.25-.19.12-.1A1.5 1.5 0 0 0 10 6.5c-.83 0-1.5.67-1.5 1.5a.5.5 0 0 1-1 0A2.5 2.5 0 0 1 10 5.5"/></symbol><symbol id="i-cloudok" viewBox="0 0 20 20"><path d="M10 2c2.82 0 4.41 1.92 4.65 4.25h.07a3.33 3.33 0 0 1 3.27 3.66q-.48-.6-1.12-1.07a2.3 2.3 0 0 0-2.15-1.6h-.07a1 1 0 0 1-1-.9C13.45 4.33 12.11 3 10 3S6.55 4.32 6.35 6.35a1 1 0 0 1-1 .9h-.07A2.33 2.33 0 0 0 3 9.62 2.33 2.33 0 0 0 5.28 12h2.67q-.14.49-.18 1H5.28A3.33 3.33 0 0 1 2 9.62c0-1.8 1.37-3.27 3.1-3.37h.25C5.6 3.9 7.18 2 10 2m8 11.5a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0m-2.85-1.85-2.65 2.64-.65-.64a.5.5 0 0 0-.7.7l1 1c.2.2.5.2.7 0l3-3a.5.5 0 0 0-.7-.7"/></symbol><symbol id="i-more" viewBox="0 0 20 20"><path d="M6.25 10a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0m5 0a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0M15 11.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5"/></symbol><symbol id="i-phone" viewBox="0 0 20 20"><path d="M9 14a.5.5 0 0 0 0 1h2a.5.5 0 0 0 0-1zM7 2a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h6a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM6 4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1z"/></symbol></svg>
+<div id="ban" class="ban" role="alert" hidden></div>
+<div id="upd" class="ban info" role="status" hidden><svg class="ic" aria-hidden="true"><use href="#i-sync"/></svg><div>Sayfanın yeni sürümü hazır.
+  <button id="bupd" class="btn btn-pri full" type="button">Şimdi yenile</button></div></div>
+<header class="top">
+  <span class="brand" aria-hidden="true"><svg class="ic"><use href="#n-scan-f"/></svg></span>
+  <h1>OMS Saha <span id="hname" class="sub"></span></h1>
+  <span id="net" class="conn" role="status" hidden><svg class="ic" aria-hidden="true"><use href="#i-off"/></svg><span>çevrimdışı</span></span>
+</header>
+<main id="main">
+
+<!-- ===== pairing ===== -->
+<section id="v-pair" class="view" aria-labelledby="h_pair" hidden>
+  <div id="pairstage"></div>
+  <div id="pairidle" class="hero">
+    <div class="hd"><span class="brand" aria-hidden="true"><svg class="ic"><use href="#n-scan-f"/></svg></span><h2 id="h_pair">Cihazı eşleştir</h2>
+      <p class="small">Bu sayfa makaraları tarar ve sepeti bulut üzerinden stok bilgisayarına gönderir. Önce bu cihazı PC'deki OMS programıyla bir kez eşleştirin.</p></div>
+    <div class="card">
+      <ol class="steps small">
+        <li>PC'de OMS programında <b>Saha</b> sekmesi → <b>Telefonu eşleştir</b> (ya da <b>Yeni cihaz eşleştir</b>) düğmesine basın.</li>
+        <li>Ekrandaki QR kodu telefonun kamerasıyla ya da aşağıdaki düğmeyle okutun. İsterseniz eşleştirme kodunu yapıştırın.</li>
+      </ol>
+      <button id="bpairqr" class="btn btn-pri btn-lg" type="button" style="margin-top:16px"><svg class="ic" aria-hidden="true"><use href="#i-qr"/></svg>QR kodu okut</button>
+      <div id="pcammsg" class="msg" role="status" aria-live="polite"></div>
+      <div class="or"><span>veya</span></div>
+      <div class="fld"><label for="pcode">Eşleştirme kodu</label>
+        <textarea id="pcode" class="mono" rows="3" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" enterkeyhint="done" placeholder="OMSP1:…"></textarea></div>
+      <div id="pmsg" class="msg" role="status" aria-live="polite"></div>
+      <button id="bpair" class="btn btn-sec full" type="button" style="margin-top:12px">Eşleştir</button>
+    </div>
+    <p class="small" style="margin:16px 4px 0">Kod gizlidir: sahibi stoğa kayıt gönderebilir. Telefon kaybolursa PC'de bu cihazı <b>iptal edin</b>.
+      Bu sayfa internetsiz de çalışır; yalnız gönderirken internet gerekir.</p>
+  </div>
+</section>
+
+<!-- ===== first run: who are you ===== -->
+<section id="v-who" class="view" aria-labelledby="h_who" hidden>
+  <div class="hero">
+    <div class="hd"><span class="brand" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span><h2 id="h_who">Hazır!</h2>
+      <p class="lead">Tara, sepete ekle, “Buluta gönder”e bas.</p>
+      <p class="small" id="whoinfo" style="margin-top:8px"></p></div>
+    <ol class="card gsteps" aria-label="Nasıl çalışır">
+      <li><span class="gn" aria-hidden="true">1</span><span class="gb"><b><svg class="ic" aria-hidden="true"><use href="#i-camera"/></svg>Tara</b><span class="gt">Makaranın etiketini kamerayla okutun.</span></span></li>
+      <li><span class="gn" aria-hidden="true">2</span><span class="gb"><b><svg class="ic" aria-hidden="true"><use href="#i-cart"/></svg>Sepete ekle</b><span class="gt">Okunan her etiket sepete bir satır olarak eklenir.</span></span></li>
+      <li><span class="gn" aria-hidden="true">3</span><span class="gb"><b><svg class="ic" aria-hidden="true"><use href="#i-cloudup"/></svg>Buluta gönder</b><span class="gt">Sepet sekmesinde Gönder'e, sonra “Buluta gönder”e basın. Dosya PC'ye kendiliğinden gelir.</span></span></li>
+    </ol>
+    <form id="fwho" class="card" autocomplete="on" novalidate style="margin-top:16px">
+      <div class="fld"><label for="wname">Adınız</label>
+        <input id="wname" type="text" autocomplete="name" autocapitalize="words" enterkeyhint="done" maxlength="60" required>
+        <p class="help">Sepetlerde "kim gönderdi" olarak görünür. Ayarlar'dan değiştirilebilir.</p></div>
+      <div class="fld"><span class="lbl" id="wcloudl">Sepetler hangi buluta gidecek?</span>
+        <div class="seg g2" role="radiogroup" aria-labelledby="wcloudl" id="wcloud"></div>
+        <p class="help">PC'de seçilen bulut. Emin değilseniz “Bilmiyorum” kalsın; yalnız yardım metnini değiştirir.</p></div>
+      <div id="wmsg" class="msg" role="status" aria-live="polite"></div>
+      <button class="btn btn-pri btn-lg" type="submit" style="margin-top:16px">Taramaya başla</button>
+    </form>
+  </div>
+</section>
+
+<!-- ===== scan ===== -->
+<section id="v-scan" class="view" aria-labelledby="h_scan" hidden>
+  <h2 id="h_scan" class="sr">Tara</h2>
+  <div id="scanstage"></div>
+  <div id="scanidle" class="card">
+    <button id="bcam" class="btn btn-pri btn-lg" type="button"><svg class="ic" aria-hidden="true"><use href="#i-camera"/></svg>Kamerayı aç ve tara</button>
+    <div class="pick">
+      <button id="bphoto" class="btn btn-sec" type="button"><svg class="ic" aria-hidden="true"><use href="#i-photo"/></svg>Fotoğraftan oku</button>
+      <button id="bkbd" class="btn btn-sec" type="button"><svg class="ic" aria-hidden="true"><use href="#i-kbd"/></svg>Elle / okuyucu</button>
+    </div>
+    <div id="cammsg" class="msg" role="status" aria-live="polite"></div>
+    <input id="ph" type="file" accept="image/*" hidden>
+    <div class="fld" style="margin-top:16px"><label for="code">Kod (el okuyucu, klavye veya yapıştır)</label>
+      <div class="row"><input id="code" class="mono" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" enterkeyhint="done" maxlength="8192" placeholder="Barkod metni">
+        <button id="badd" class="btn btn-sec" type="button"><svg class="ic" aria-hidden="true"><use href="#i-add"/></svg>Ekle</button></div>
+      <p class="help">USB / Bluetooth okuyucu bu alana yazar; Enter ile sepete eklenir.</p></div>
+    <div class="fld"><label for="defloc">Varsayılan konum</label>
+      <input id="defloc" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" enterkeyhint="done" maxlength="64" placeholder="ör. A3 (boş bırakılabilir)">
+      <p class="help">Bundan sonra eklenen satırlara yazılır.</p></div>
+  </div>
+  <div id="scanrest" class="card" style="margin-top:16px">
+    <div class="sumrow"><span class="big" id="scount">0</span><span class="mut">satır sepette</span><span class="sp"></span>
+      <button id="bgobasket" class="btn btn-ghost" type="button"><svg class="ic" aria-hidden="true"><use href="#i-cart"/></svg>Sepete git</button></div>
+    <ul id="recent" class="rl" style="margin-top:12px" aria-label="Son eklenenler" hidden></ul>
+  </div>
+</section>
+
+<!-- ===== basket ===== -->
+<section id="v-basket" class="view" aria-labelledby="h_basket" hidden>
+  <div class="vh"><h2 id="h_basket">Sepet</h2><span id="bcnt" class="tag neutral"></span></div>
+  <div id="bempty" class="card empty"><svg class="ic" aria-hidden="true"><use href="#n-cart"/></svg><b>Sepet boş</b>Tara sekmesinden makaraları okutun; her okunan etiket buraya bir satır olarak eklenir.
+    <div><button id="bgoscan" class="btn btn-sec" type="button"><svg class="ic" aria-hidden="true"><use href="#i-camera"/></svg>Taramaya git</button></div></div>
+  <p id="bhint" class="small" style="margin:0 4px 12px">Bir satıra dokunarak miktar, konum ve not girin. Miktar boşsa etiketteki miktar kullanılır.</p>
+  <ul id="blist" class="rl" aria-label="Sepetteki satırlar"></ul>
+  <div id="sendbar" class="sendbar"><button id="bsend" class="btn btn-pri" type="button"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg>Gönder</button></div>
+  <div id="bdz" class="dz"><button id="bclear" class="btn btn-danger-ghost" type="button"><svg class="ic" aria-hidden="true"><use href="#i-del"/></svg>Sepeti boşalt</button></div>
+</section>
+
+<!-- ===== history ===== -->
+<section id="v-hist" class="view" aria-labelledby="h_hist" hidden>
+  <div class="vh"><h2 id="h_hist">Gönderilenler</h2></div>
+  <div class="note info"><svg class="ic" aria-hidden="true"><use href="#i-info"/></svg><div>Gönderilen sepetler bu cihazda 30 gün saklanır. Sepet PC'ye ulaşmadıysa aynı sepeti yeniden gönderin; PC aynı satırı iki kez işlemez.</div></div>
+  <div id="hempty" class="card empty" style="margin-top:16px"><svg class="ic" aria-hidden="true"><use href="#n-hist"/></svg><b>Henüz gönderilen sepet yok</b></div>
+  <div id="hlist" style="margin-top:16px"></div>
+</section>
+
+<!-- ===== camera settings (V6, OmsCam panel) ===== -->
+<section id="v-cam" class="view" aria-labelledby="h_cam" hidden>
+  <div class="vh"><h2 id="h_cam">Kamera</h2></div>
+  <div id="camstage"></div>
+  <div id="camidle" class="card">
+    <p class="small">Hangi kamera, çözünürlük, odak, pozlama ve ışık ayarları burada seçilir. Ayarlar bu cihazda saklanır ve taramada kullanılır.
+      Tarayıcının desteklediği ayarlar kamera açıkken görünür.</p>
+    <button id="bcfgcam" class="btn btn-pri btn-lg" type="button" style="margin-top:12px"><svg class="ic" aria-hidden="true"><use href="#i-camera"/></svg>Önizlemeyi aç</button>
+    <div id="cfgmsg" class="msg" role="status" aria-live="polite"></div>
+    <p id="cfghint" class="small" style="margin-top:8px" hidden>Önizlemede bir noktaya dokunarak o noktaya odaklayabilirsiniz (kamera destekliyorsa ve "Dokunarak odakla" açıksa).</p>
+  </div>
+  <div id="camnomod" class="note warn" style="margin-top:16px" hidden><svg class="ic" aria-hidden="true"><use href="#i-warn"/></svg><div>Kamera ayar modülü (camsettings.js) yüklenemedi. İnternete bağlıyken sayfayı yenileyin. Tarama varsayılan ayarlarla çalışır.</div></div>
+  <div id="campanel" class="card" style="margin-top:16px"></div>
+</section>
+
+<!-- ===== settings ===== -->
+<section id="v-set" class="view" aria-labelledby="h_set" hidden>
+  <h2 id="h_set" class="sr">Ayarlar</h2>
+  <div class="stack">
+    <div class="card" id="c_cloud"><h3>Buluta gönderim</h3>
+      <span class="lbl" id="scloudl">Bulut</span>
+      <div class="seg g2" role="radiogroup" aria-labelledby="scloudl" id="scloud"></div>
+      <p class="help">PC'de seçilen bulut. Yalnız “Nasıl gönderilir?” yardımını değiştirir.</p>
+      <div id="c_folder" hidden style="margin-top:16px"><span class="lbl">OMS Saha klasörü (bu bilgisayar)</span>
+        <div class="fldrow"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><div id="fldname" role="status" aria-live="polite">Seçilmedi</div></div>
+        <div id="fldmsg" class="msg" role="status" aria-live="polite"></div>
+        <div class="acts"><button id="bfldpick" class="btn btn-sec" type="button"><svg class="ic" aria-hidden="true"><use href="#i-folderopen"/></svg>Klasörü seç</button>
+          <button id="bfldforget" class="btn btn-ghost" type="button" style="flex:0 0 auto" hidden>Unut</button></div></div>
+      <div class="acts"><button id="bhowto" class="btn btn-sec" type="button"><svg class="ic" aria-hidden="true"><use href="#i-help"/></svg>Nasıl gönderilir?</button></div>
+    </div>
+    <div class="card"><h3>Eşleşme</h3>
+      <dl class="kvl" id="pairkv"></dl>
+      <div class="fld" style="margin-top:12px"><label for="suser">Adınız</label>
+        <input id="suser" type="text" autocomplete="name" autocapitalize="words" enterkeyhint="done" maxlength="60"></div>
+      <div id="setmsg" class="msg" role="status" aria-live="polite"></div>
+      <div class="acts r"><button id="bsetsave" class="btn btn-sec" type="button"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg>Kaydet</button></div>
+    </div>
+    <div class="card" id="c_cat"><h3>Stok listesi (yerel ağ)</h3>
+      <p class="small">Taramada makara zaten stoktaysa uyarır, aynı parça stokta varsa miktarını ve konumunu gösterir. Liste yalnız telefon PC ile aynı ağdayken alınır; bu cihazda saklanır ve internetsiz de kullanılır.</p>
+      <dl class="kvl stockbox" id="catkv"></dl>
+      <div id="catnote" class="stockbox" hidden></div>
+      <div id="catmsg" class="msg" role="status" aria-live="polite"></div>
+      <div class="acts"><button id="bcatsync" class="btn btn-pri" type="button"><svg class="ic" aria-hidden="true"><use href="#i-resync"/></svg>Stok listesini al</button>
+        <a id="bcatcert" class="btn btn-sec" href="#" target="_blank" rel="noopener" hidden><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>PC sertifikasını onayla</a></div>
+    </div>
+    <div class="card"><h3>Tarama geri bildirimi</h3>
+      <label class="chk"><input id="o_snd" type="checkbox"><span>Okununca ses çal</span></label>
+      <label class="chk" id="o_vibw"><input id="o_vib" type="checkbox"><span>Okununca titret</span></label>
+    </div>
+    <div class="card"><h3>Görünüm</h3>
+      <div class="seg" role="radiogroup" aria-label="Tema" id="themeseg">
+        <label><input type="radio" name="theme" value="system"><svg class="ic" aria-hidden="true"><use href="#i-desk"/></svg>Sistem</label>
+        <label><input type="radio" name="theme" value="light"><svg class="ic" aria-hidden="true"><use href="#i-sun"/></svg>Açık</label>
+        <label><input type="radio" name="theme" value="dark"><svg class="ic" aria-hidden="true"><use href="#i-moon"/></svg>Koyu</label>
+      </div>
+    </div>
+    <div class="card"><h3>Uygulama</h3>
+      <dl class="kvl" id="appkv"></dl>
+      <p class="small" id="installhint" style="margin-top:12px"></p>
+      <div class="acts r"><button id="binstall" class="btn btn-sec" type="button" hidden><svg class="ic" aria-hidden="true"><use href="#i-add"/></svg>Ana ekrana ekle</button></div>
+    </div>
+    <details class="card more" id="advset">
+      <summary><svg class="ic" aria-hidden="true"><use href="#i-more"/></svg>Gelişmiş<svg class="ic chev" aria-hidden="true"><use href="#i-chev"/></svg></summary>
+      <div class="inner">
+      <p class="small">Çoğu kullanıcının buraya ihtiyacı yoktur. E-postayla gönderim ve PC bağlantı ayarları.</p>
+      <div class="sub" id="c_mail" style="margin-top:12px"><h4>E-postayla gönderim</h4>
+        <p class="small">“Diğer yollar” altındaki e-posta seçenekleri bu adrese gönderir.</p>
+        <div class="fld" style="margin-top:8px"><label for="sto">Alıcı e-posta adresi</label>
+          <div class="row"><input id="sto" type="email" inputmode="email" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" maxlength="200">
+            <button id="bmailsave" class="btn btn-sec" type="button">Kaydet</button></div></div>
+        <dl class="kvl" id="mailkv" style="margin-top:12px"></dl>
+        <div id="mailmsg" class="msg" role="status" aria-live="polite"></div></div>
+      <div class="sub" id="c_lan"><h4>PC adresleri</h4>
+        <p class="small">Stok listesinin alınacağı PC adresleri (ör. https://192.168.1.20:47803). Eşleştirme kodundan gelir; PC'nin adresi değiştiyse buradan düzeltin. Sırayla denenir.</p>
+        <div id="lanlist" style="margin-top:12px"></div>
+        <div id="lanmsg" class="msg" role="status" aria-live="polite"></div>
+        <div class="acts"><button id="blanadd" class="btn btn-ghost" type="button"><svg class="ic" aria-hidden="true"><use href="#i-add"/></svg>Adres ekle</button>
+          <button id="blansave" class="btn btn-sec" type="button" style="flex:0 0 auto"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg>Kaydet</button></div>
+      </div>
+      <div class="sub" id="c_ms"><h4>Microsoft hesabı (doğrudan e-posta gönderimi)</h4>
+        <p class="small">Giriş yapınca sepet, e-posta uygulaması açılmadan bu sayfadan gönderilir. İnternet yoksa giden kutusunda bekler ve bağlantı gelince kendiliğinden gider. Yalnız e-posta gönderme izni istenir.</p>
+        <div class="acct" style="margin-top:8px"><svg class="ic" aria-hidden="true"><use href="#i-person"/></svg><div id="msstat" role="status" aria-live="polite">Giriş yapılmadı</div></div>
+        <div id="msmsg" class="msg" role="status" aria-live="polite"></div>
+        <div class="acts"><button id="bmsin" class="btn btn-pri" type="button"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg>Microsoft ile giriş yap</button>
+          <button id="bmsout" class="btn btn-sec" type="button" hidden><svg class="ic" aria-hidden="true"><use href="#i-signout"/></svg>Çıkış yap</button></div>
+        <div class="fld" style="margin-top:16px"><label for="scid">Uygulama (<span lang="en">Client</span>) kimliği</label>
+          <div class="row"><input id="scid" class="mono" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" enterkeyhint="done" maxlength="64" placeholder="00000000-0000-0000-0000-000000000000">
+            <button id="bcidsave" class="btn btn-sec" type="button">Kaydet</button></div>
+          <p class="help">PC'deki OMS programının e-posta ayarlarındaki kimlik; eşleştirme kodundan gelir. Microsoft (Entra) kaydına "Tek sayfalı uygulama" platformu ve şu yönlendirme adresi eklenmelidir:</p>
+          <div class="redir"><code id="redir"></code><button id="bredircopy" class="btn btn-icon" type="button" aria-label="Yönlendirme adresini kopyala"><svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg></button></div></div>
+      </div>
+      </div>
+    </details>
+    <div class="card"><h3>Tehlikeli bölge</h3>
+      <p class="small">Eşleştirme kaldırılınca bu cihaz sepet gönderemez; yeniden eşleştirmek için PC'de yeni kod üretmek gerekir. Sepet ve geçmiş silinmez.</p>
+      <div class="acts"><button id="bunpair" class="btn btn-danger-ghost" type="button"><svg class="ic" aria-hidden="true"><use href="#i-signout"/></svg>Eşleştirmeyi kaldır</button></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- camera stage: moved between #scanstage and #pairstage -->
+<div id="stage" class="stage" hidden>
+  <video id="cvid" playsinline muted autoplay disablepictureinpicture aria-label="Kamera önizlemesi"></video>
+  <div class="aim" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div id="fring" class="fring" aria-hidden="true"></div>
+  <div class="stop">
+    <button id="bcamsw" class="sbtn" type="button" aria-label="Kamera değiştir" hidden><svg class="ic" aria-hidden="true"><use href="#i-camsw"/></svg></button>
+    <button id="bcamset" class="sbtn" type="button" aria-label="Kamera ayarları" hidden><svg class="ic" aria-hidden="true"><use href="#n-set"/></svg></button>
+    <span class="sp"></span>
+    <button id="bstagebasket" class="sbtn t" type="button" aria-label="Sepeti aç"><svg class="ic" aria-hidden="true"><use href="#i-cart"/></svg><span class="cnt" id="stagecnt">0</span></button>
+    <button id="bcamoff" class="sbtn" type="button" aria-label="Kamerayı kapat" style="margin-left:8px"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button>
+  </div>
+  <div id="cstate" class="spill" role="status" aria-live="polite"><i class="dot"></i><span>Kamera açılıyor…</span></div>
+  <div id="chelp" class="chelp" hidden>
+    <button id="bsnap" class="sbtn t" type="button"><svg class="ic" aria-hidden="true"><use href="#i-photo"/></svg><span>Fotoğraf çek</span></button>
+    <button id="bman3" class="sbtn t" type="button"><svg class="ic" aria-hidden="true"><use href="#i-kbd"/></svg><span>Elle gir</span></button>
+  </div>
+  <div class="sbot">
+    <button id="bmanual" class="sbtn t" type="button"><svg class="ic" aria-hidden="true"><use href="#i-kbd"/></svg><span>Elle</span></button>
+    <span class="sp"></span>
+    <div id="zseg" class="zseg" role="radiogroup" aria-label="Yakınlaştırma" hidden></div>
+    <span class="sp"></span>
+    <button id="btorch" class="sbtn t" type="button" aria-pressed="false" hidden><svg class="ic" aria-hidden="true"><use href="#i-torch"/></svg><span>Işık</span></button>
+  </div>
+  <div id="cpause" class="cpause" hidden><button id="bresume" type="button"><svg class="ic" aria-hidden="true"><use href="#i-pause"/></svg>Tarama duraklatıldı. Devam etmek için dokunun.</button></div>
+</div>
+
+<nav class="nav" aria-label="Bölümler">
+  <button type="button" data-v="scan"><span class="pill"><svg class="ic r" aria-hidden="true"><use href="#n-scan"/></svg><svg class="ic f" aria-hidden="true"><use href="#n-scan-f"/></svg></span>Tara</button>
+  <button type="button" data-v="basket"><span class="pill"><svg class="ic r" aria-hidden="true"><use href="#n-cart"/></svg><svg class="ic f" aria-hidden="true"><use href="#n-cart-f"/></svg><span id="nbadge" class="badge" hidden></span></span>Sepet</button>
+  <button type="button" data-v="hist"><span class="pill"><svg class="ic r" aria-hidden="true"><use href="#n-hist"/></svg><svg class="ic f" aria-hidden="true"><use href="#n-hist-f"/></svg></span>Geçmiş</button>
+  <button type="button" data-v="cam"><span class="pill"><svg class="ic r" aria-hidden="true"><use href="#n-cam"/></svg><svg class="ic f" aria-hidden="true"><use href="#n-cam-f"/></svg></span>Kamera</button>
+  <button type="button" data-v="set"><span class="pill"><svg class="ic r" aria-hidden="true"><use href="#n-set"/></svg><svg class="ic f" aria-hidden="true"><use href="#n-set-f"/></svg></span>Ayarlar</button>
+</nav>
+
+<div id="modal" class="modal" hidden><div class="box" role="dialog" aria-modal="true" aria-labelledby="mt" tabindex="-1"><h3 id="mt"></h3><div id="mb"></div></div></div>
+<div id="snack" class="snack" role="status" aria-live="polite"><svg class="ic st" aria-hidden="true"><use href="#i-ok"/></svg><span class="tx"></span><button class="act" type="button" hidden></button><button class="x" type="button" aria-label="Kapat"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+
+<script src="./envelope.js"></script>
+<script src="./labelparse.js"></script>
+<script src="./camsettings.js"></script>
+<script src="./catalog.js"></script>
+<script src="./msal-browser.min.js"></script>
+<script src="./sendmail.js"></script>
+<script src="./cloudsend.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
