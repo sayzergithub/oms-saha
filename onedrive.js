@@ -1,7 +1,6 @@
 /*
  * OMS field mode - direct OneDrive transport (spec V8 §17 P2, §18 P3). No share sheet, no folder picking.
- *   MSAL.js v5 (Field/msal-browser.min.js: globals `msal` + `msalRedirectBridge`), authority common (personal + work/school),
- *   scope Files.ReadWrite (+ openid/profile/offline_access added by MSAL), token cache localStorage.
+ *   Authority common (personal + work/school), scope openid profile offline_access Files.ReadWrite, tokens in localStorage.
  *   Upload:   PUT  https://graph.microsoft.com/v1.0/me/drive/root:/OMS Saha/<name>:/content?@microsoft.graph.conflictBehavior=rename
  *             Content-Type text/plain, body = armor text; 200/201 = sent. The first PUT creates the "OMS Saha" folder.
  *   Download: GET  .../root:/OMS Saha/<name>  -> @microsoft.graph.downloadUrl, then GET that URL without Authorization.
@@ -9,9 +8,8 @@
  *             CORS preflight is prohibited, so browser apps must use downloadUrl (pre-authenticated, no preflight).
  *   Outbox:   IndexedDB 'oms-drive-outbox' (fallback localStorage, then memory); retried on `online`, page open, every 60 s, tab visible.
  *
- * MSAL v5: popup / iframe / redirect all come back to `redirectUri` (the page directory), and that page must run the redirect
- * bridge exactly once. Field/sendmail.js (OmsMail) runs it too; whichever file loads first owns it, the other one follows
- * (load sendmail.js before onedrive.js). When `OmsDrive.isAuthCallback` (or OmsMail.isAuthCallback) is true the app must not boot.
+ * Sign-in: own OAuth 2.0 authorization code + PKCE redirect (no MSAL - see the sign-in section); state, verifier and tokens
+ * live in localStorage so the round trip survives the installed-app / Chrome split on Android. isAuthCallback is always false.
  *
  * UMD. Browser: global OmsDrive. Node: module.exports (tests inject deps with _setDeps).
  */
@@ -67,12 +65,10 @@
 
   // ------------------------------------------------------------------ environment (overridable for Node tests)
   var deps = {
-    msal: null, bridge: null,                         // null = take root.msal / root.msalRedirectBridge
+    crypto: null,                                     // null = root.crypto (WebCrypto for PKCE)
     fetch: null, indexedDB: undefined, storage: undefined,
     location: null, navigator: null, now: null, clientId: null
   };
-  function lib() { return deps.msal || root.msal || null; }
-  function bridgeLib() { return deps.bridge || root.msalRedirectBridge || null; }
   function doFetch(url, opts) { var f = deps.fetch || root.fetch; return f.call(root, url, opts); }
   function nav() { return deps.navigator || root.navigator || null; }
   function loc() { return deps.location || root.location || null; }
@@ -99,239 +95,224 @@
     try { if (root.console) root.console.warn('OmsDrive ' + where + ':', (e && (e.errorCode || e.message)) || e); } catch (x) { }
   }
 
-  // ------------------------------------------------------------------ redirect bridge (runs at load, shared with OmsMail)
-  /** True when the URL carries an MSAL auth response (fragment or query): we are the popup / iframe / redirect target. */
-  function hasAuthResponse(l) {
-    if (!l) return false;
-    function look(s) {
-      if (!s || s.length < 2) return false;
-      var p = '&' + s.substring(1) + '&';
-      return p.indexOf('&state=') >= 0 && (p.indexOf('&code=') >= 0 || p.indexOf('&error=') >= 0);
+  // ------------------------------------------------------------------ sign-in: own OAuth 2.0 auth code + PKCE (no MSAL)
+  // Field report 2026-10-23: with MSAL the installed Android app lost the sign-in — the Microsoft page finished in a Chrome
+  // context whose sessionStorage (MSAL's PKCE verifier / interaction state) is not the app's, so Chrome just showed its last
+  // page. Here everything the round trip needs lives in localStorage, which the installed app and Chrome share for this origin:
+  // the sign-in completes whichever window Microsoft returns to. The response is captured when this file loads (before the app
+  // cleans the URL); our `state` starts with "omsd" so OmsMail (MSAL) leaves it alone.
+  var TOKEN_URL = AUTHORITY + '/oauth2/v2.0/token';
+  var AUTH_URL = AUTHORITY + '/oauth2/v2.0/authorize';
+  var AUTH_SCOPE = 'openid profile offline_access ' + SCOPES.join(' ');
+  var K_PENDING = 'omsd.auth.pending', K_TOKENS = 'omsd.auth.tokens';
+  var STATE_PREFIX = 'omsd';
+  var PENDING_MAX_MS = 30 * 60 * 1000;
+
+  function lib() {   // WebCrypto (PKCE) is the only thing sign-in needs
+    var c = deps.crypto || root.crypto;
+    return c && c.subtle && typeof c.getRandomValues === 'function' ? c : null;
+  }
+
+  /** {code|error, state, desc} from a "#..." or "?..." string when it is OUR response, else null. */
+  function parseResponse(s) {
+    if (!s || s.length < 2) return null;
+    var o = {};
+    s.substring(1).split('&').forEach(function (kv) {
+      var i = kv.indexOf('=');
+      if (i <= 0) return;
+      try { o[decodeURIComponent(kv.substring(0, i))] = decodeURIComponent(kv.substring(i + 1).replace(/\+/g, ' ')); } catch (e) { }
+    });
+    if (!o.state || o.state.indexOf(STATE_PREFIX) !== 0 || !(o.code || o.error)) return null;
+    return { code: o.code || '', error: o.error || '', desc: o.error_description || '', state: o.state };
+  }
+  function hasAuthResponse(l) { return !!(l && (parseResponse(l.hash || '') || parseResponse(l.search || ''))); }
+  var captured = null;   // our response, taken at load (the app may clean the URL right after)
+  function capture() {
+    var l = loc();
+    if (!l) return;
+    captured = parseResponse(l.hash || '') || parseResponse(l.search || '') || null;
+    if (captured) {
+      try { root.history.replaceState(null, '', l.pathname); } catch (e) { }
     }
-    return look(l.hash || '') || look(l.search || '');
   }
+  if (typeof document !== 'undefined') capture();
+  function inCallback() { return false; }   // the app always boots; init() finishes the sign-in
 
-  var authCallback = false, bridgePromise = null, mailOwnsBridge = false;
-  function mailCallback() { var m = root.OmsMail; return !!(m && m !== api && m.isAuthCallback); }
-  function runBridge() {
-    if (bridgePromise) return bridgePromise;
-    // OmsMail already runs the bridge for this page load: never call it twice (the second call fails, URL is already cleaned).
-    if (mailCallback()) { mailOwnsBridge = true; bridgePromise = Promise.resolve(); return bridgePromise; }
-    var b = bridgeLib();
-    if (!b || typeof b.broadcastResponseToMainFrame !== 'function') return null;
-    authCallback = true;
-    bridgePromise = Promise.resolve().then(function () { return b.broadcastResponseToMainFrame(); })
-      .catch(function (e) {
-        // Stale/foreign response (e.g. bookmarked URL with #code=): forget it; the page boots normally next time.
-        authCallback = false;
-        warn('bridge', e);
-      });
-    return bridgePromise;
-  }
-  function inCallback() { return authCallback || (mailOwnsBridge && mailCallback()); }
-  if (typeof document !== 'undefined') {
-    if (mailCallback()) { mailOwnsBridge = true; bridgePromise = Promise.resolve(); }
-    else if (hasAuthResponse(loc())) runBridge();
-  }
+  var initPromise = null, needLogin = false, lastAuthError = '', refreshing = null;
 
-  // ------------------------------------------------------------------ MSAL client
-  var pca = null, initPromise = null, activeAcc = null, needLogin = false;
+  function lsGet(k) { var s = lsObj(); if (!s) return null; try { var v = s.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+  function lsSet(k, v) { var s = lsObj(); if (!s) return false; try { s.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+  function lsDel(k) { var s = lsObj(); if (s) { try { s.removeItem(k); } catch (e) { } } }
 
   function redirectUri() {
     var l = loc();
     if (!l || !l.origin) return '';
     var p = String(l.pathname || '/');
-    return l.origin + p.substring(0, p.lastIndexOf('/') + 1);   // page directory, no index.html (same as OmsMail)
+    return l.origin + p.substring(0, p.lastIndexOf('/') + 1);   // page directory, no index.html (registered SPA redirect)
   }
 
-  /** True when this page can use OneDrive at all (app id set and the sign-in library loaded). */
-  function available() {
-    var m = lib();
-    return GUID_RE.test(clientId()) && !!redirectUri() && !!(m && typeof m.PublicClientApplication === 'function');
-  }
+  /** True when this page can use OneDrive at all (app id set, secure page with WebCrypto). */
+  function available() { return GUID_RE.test(clientId()) && !!redirectUri() && !!lib(); }
 
-  function isIos() {
-    var n = nav();
-    if (!n) return false;
-    var ua = String(n.userAgent || '');
-    return /iPad|iPhone|iPod/.test(ua) || (n.platform === 'MacIntel' && n.maxTouchPoints > 1);
+  function b64url(bytes) {
+    var s = '';
+    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return (root.btoa ? root.btoa(s) : Buffer.from(s, 'binary').toString('base64')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
-  // Field report 2026-10-23: in the installed (home-screen) app on Android the sign-in popup opened a separate Chrome tab the
-  // page could not drive — Chrome just showed its last page. Phones and installed apps sign in by full-page redirect.
-  function preferRedirect() {
-    var n = nav(), ua = String((n && n.userAgent) || '');
-    return isIos() || isStandalone() || /Android|Mobile/i.test(ua);
+  function randomB64(n) { var b = new Uint8Array(n); lib().getRandomValues(b); return b64url(b); }
+  function sha256B64(text) {
+    var bytes = new TextEncoder().encode(text);
+    return Promise.resolve(lib().subtle.digest('SHA-256', bytes)).then(function (h) { return b64url(new Uint8Array(h)); });
   }
-  function isStandalone() {
-    var n = nav();
-    if (n && n.standalone === true) return true;
-    try { return !!(root.matchMedia && root.matchMedia('(display-mode: standalone)').matches); } catch (e) { return false; }
-  }
-
-  function msalConfig() {
-    var ru = redirectUri();
-    return {
-      auth: {
-        clientId: clientId(),
-        authority: AUTHORITY,
-        knownAuthorities: [],
-        redirectUri: ru,
-        postLogoutRedirectUri: ru
-      },
-      cache: { cacheLocation: 'localStorage' },
-      // Microsoft: navigatePopups=false for installed PWAs (no about:blank there).
-      system: { navigatePopups: !isStandalone() }
-    };
-  }
-
-  /**
-   * Builds the MSAL client and finishes a pending redirect sign-in. Call once on page open.
-   * Resolves to account() (or null); never rejects.
-   */
-  function init() {
-    if (inCallback() || !available()) return Promise.resolve(null);
-    if (initPromise) return initPromise;
-    var m = lib();
-    var p = Promise.resolve().then(function () {
-      if (typeof m.createStandardPublicClientApplication === 'function') return m.createStandardPublicClientApplication(msalConfig());
-      var c = new m.PublicClientApplication(msalConfig());
-      return c.initialize().then(function () { return c; });
-    }).then(function (c) {
-      if (initPromise !== p) return null;   // reset meanwhile
-      pca = c;
-      return Promise.resolve().then(function () { return c.handleRedirectPromise(); }).catch(function (e) {
-        warn('handleRedirectPromise', e);
-        return null;
-      }).then(function (res) {
-        var acc = (res && res.account) || safeActive(c);
-        setActive(acc);
-        if (res && res.account) { needLogin = false; emit({ type: 'account', basketId: '' }); }
-        return account();
-      });
-    }).catch(function (e) {
-      warn('init', e);
-      if (initPromise === p) initPromise = null;   // allow a retry later
-      return null;
-    });
-    initPromise = p;
-    return p;
-  }
-
-  function safeActive(c) {
+  function jwtClaims(t) {
     try {
-      var a = c.getActiveAccount();
-      if (a) return a;
-      var all = c.getAllAccounts() || [];
-      return all.length ? all[0] : null;
-    } catch (e) { return null; }
-  }
-  function setActive(acc) {
-    activeAcc = acc || null;
-    if (pca) { try { pca.setActiveAccount(activeAcc); } catch (e) { } }
+      var p = String(t || '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (p.length % 4) p += '=';
+      var raw = root.atob ? root.atob(p) : Buffer.from(p, 'base64').toString('binary');
+      var esc = '';
+      for (var i = 0; i < raw.length; i++) esc += '%' + ('0' + raw.charCodeAt(i).toString(16)).slice(-2);
+      return JSON.parse(decodeURIComponent(esc));
+    } catch (e) { return {}; }
   }
 
+  function tokens() { return lsGet(K_TOKENS); }
   /** Connected account {username, name} or null. */
   function account() {
-    var a = activeAcc;
-    if (!a && pca) { a = safeActive(pca); activeAcc = a; }
-    return a ? { username: a.username || '', name: a.name || a.username || '' } : null;
+    var t = tokens();
+    return t && t.refresh && t.user ? { username: t.user.username || '', name: t.user.name || t.user.username || '' } : null;
   }
 
   /** True after an upload/flush found that the user must connect again (e.g. the 24 h sign-in limit of browser apps). */
   function loginNeeded() { return needLogin; }
 
+  function authErr(code, msg) { var e = new Error(msg || code); e.errorCode = code; return e; }
   function errCode(e) { return String((e && (e.errorCode || e.code)) || ''); }
   function errName(e) { return String((e && e.name) || ''); }
-
   function isInteractionRequired(e) {
-    var m = lib(), code = errCode(e);
-    if (m && m.InteractionRequiredAuthError && e instanceof m.InteractionRequiredAuthError) return true;
-    if (errName(e) === 'InteractionRequiredAuthError') return true;
-    var codes = (m && m.InteractionRequiredAuthErrorCodes) || {};
-    for (var k in codes) if (codes[k] === code) return true;
-    // no account / iframe renewal blocked (third-party cookies, iOS) / token cache unreadable after a browser restart
-    return /^(interaction_required|login_required|consent_required|no_tokens_found|refresh_token_expired|bad_token|no_account_error|monitor_window_timeout|timed_out|iframe_closed_prematurely|block_iframe_reload|unable_to_load_token|crypto_key_not_found)$/.test(code);
+    return /^(interaction_required|login_required|consent_required|invalid_grant|no_account_error|no_tokens_found|refresh_token_expired)$/.test(errCode(e));
   }
-  function isNetworkError(e) {
-    var code = errCode(e);
-    return /^(no_network_connectivity|post_request_failed|get_request_failed|network_error|endpoints_resolution_error)$/.test(code) ||
-      errName(e) === 'TypeError' || isOffline();
+  function isNetworkError(e) { return errCode(e) === 'network_error' || errName(e) === 'TypeError' || errName(e) === 'AbortError' || isOffline(); }
+
+  /** POST to the token endpoint (CORS is allowed for SPA-registered redirect origins). Resolves the JSON or throws authErr. */
+  function tokenRequest(fields) {
+    var body = Object.keys(fields).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(fields[k]); }).join('&');
+    return Promise.resolve().then(function () {
+      return doFetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body, credentials: 'omit', cache: 'no-store' });
+    }).then(function (resp) {
+      return resp.text().then(function (txt) {
+        var j = {}; try { j = JSON.parse(txt); } catch (e) { }
+        if (!resp.ok || !j.access_token) throw authErr(j.error || ('http_' + resp.status), j.error_description || txt.substring(0, 200));
+        return j;
+      });
+    }, function (e) { throw authErr('network_error', (e && e.message) || String(e)); });
+  }
+
+  function storeTokens(j, prev) {
+    var claims = j.id_token ? jwtClaims(j.id_token) : {};
+    var user = (j.id_token && (claims.preferred_username || claims.email || claims.name))
+      ? { username: claims.preferred_username || claims.email || '', name: claims.name || claims.preferred_username || '' }
+      : (prev && prev.user) || null;
+    var t = {
+      access: j.access_token,
+      accessExp: now() + Math.max(60, (+j.expires_in || 3600) - 120) * 1000,
+      refresh: j.refresh_token || (prev && prev.refresh) || '',
+      user: user,
+      at: now()
+    };
+    lsSet(K_TOKENS, t);
+    return t;
+  }
+
+  /** Finishes a sign-in whose response was captured at load. Resolves true when connected. */
+  function finishCallback() {
+    var r = captured; captured = null;
+    if (!r) return Promise.resolve(false);
+    var pend = lsGet(K_PENDING);
+    lsDel(K_PENDING);
+    if (r.error) {
+      lastAuthError = r.error === 'access_denied' ? 'CANCELLED' : 'UNKNOWN';
+      warn('signIn', r.error + ' ' + r.desc);
+      return Promise.resolve(false);
+    }
+    if (!pend || pend.state !== r.state || now() - (pend.at || 0) > PENDING_MAX_MS) {
+      lastAuthError = 'UNKNOWN';
+      warn('signIn', 'no matching sign-in request (state)');
+      return Promise.resolve(false);
+    }
+    return tokenRequest({
+      client_id: clientId(), grant_type: 'authorization_code', code: r.code,
+      redirect_uri: pend.redirect || redirectUri(), code_verifier: pend.verifier, scope: AUTH_SCOPE
+    }).then(function (j) {
+      storeTokens(j, null);
+      needLogin = false; lastAuthError = '';
+      emit({ type: 'account', basketId: '' });
+      return true;
+    }, function (e) {
+      lastAuthError = isNetworkError(e) ? 'OFFLINE' : 'UNKNOWN';
+      warn('token', errCode(e) + ' ' + ((e && e.message) || ''));
+      return false;
+    });
+  }
+
+  /** Finishes a pending sign-in (if this page load is the return from Microsoft). Resolves account() or null; never rejects. */
+  function init() {
+    if (!available()) return Promise.resolve(null);
+    if (initPromise) return initPromise;
+    initPromise = finishCallback().then(function () { return account(); }, function () { return account(); });
+    return initPromise;
   }
 
   /**
-   * Interactive connect. Popup on desktop/Android; full-page redirect on iOS (WebKit) or when the popup is blocked.
-   * Call straight from a click handler (the popup must open inside the user gesture).
-   * Resolves {ok, account, redirecting, code, error}; never rejects.
+   * Interactive connect: the page goes to Microsoft and comes back (works in the installed app, Chrome and Safari alike).
+   * Resolves {ok, redirecting:true} just before leaving; {ok:false, code} when it cannot start. Never rejects.
    */
   function signIn() {
     if (!GUID_RE.test(clientId())) return Promise.resolve(fail('CONFIG'));
     if (!lib()) return Promise.resolve(fail('NO_LIB'));
     if (isOffline()) return Promise.resolve(fail('OFFLINE'));
-    var req = { scopes: SCOPES.slice(), prompt: 'select_account' };
-    // No await before loginPopup: keeps the click's user activation for window.open.
-    if (pca && !preferRedirect()) return popupLogin(req);
-    // Client not built yet (or iOS): after the await the activation may be gone, so a blocked popup falls back to redirect.
-    return init().then(function () {
-      if (!pca) return fail('NO_LIB');
-      return preferRedirect() ? redirectLogin(req) : popupLogin(req);
-    });
+    var verifier = randomB64(48), state = STATE_PREFIX + randomB64(18), ru = redirectUri();
+    return sha256B64(verifier).then(function (challenge) {
+      if (!lsSet(K_PENDING, { state: state, verifier: verifier, at: now(), redirect: ru })) return fail('UNKNOWN', 0, 'storage');
+      var q = {
+        client_id: clientId(), response_type: 'code', redirect_uri: ru, response_mode: 'fragment', scope: AUTH_SCOPE,
+        state: state, code_challenge: challenge, code_challenge_method: 'S256', prompt: 'select_account'
+      };
+      var url = AUTH_URL + '?' + Object.keys(q).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(q[k]); }).join('&');
+      var l = loc();
+      try { if (l && typeof l.assign === 'function') l.assign(url); else if (l) l.href = url; } catch (e) { return fail('UNKNOWN', 0, (e && e.message) || ''); }
+      return result(true, 0, '', '', { account: null, redirecting: true });
+    }, function (e) { return fail('NO_LIB', 0, (e && e.message) || ''); });
   }
 
-  function popupLogin(req) {
-    var p;
-    try { p = pca.loginPopup(req); } catch (e) { p = Promise.reject(e); }
-    return Promise.resolve(p).then(signedIn, function (e) {
-      var c = errCode(e);
-      if (c === 'popup_window_error' || c === 'empty_window_error' || c === 'block_nested_popups') return redirectLogin(req);
-      return loginError(e);
-    });
-  }
+  /** Last sign-in outcome after coming back from Microsoft ('' ok, 'CANCELLED', 'OFFLINE', 'UNKNOWN'). */
+  function lastSignInError() { return lastAuthError; }
 
-  function redirectLogin(req) {
-    var p;
-    try { p = pca.loginRedirect(req); } catch (e) { return Promise.resolve(loginError(e)); }
-    // loginRedirect navigates away; its promise normally never settles before unload.
-    return Promise.resolve(p).then(function () { return result(true, 0, '', '', { account: null, redirecting: true }); }, loginError);
-  }
-
-  function signedIn(res) {
-    setActive(res && res.account);
+  /** Disconnects this device (forgets the tokens only; the outbox is kept and waits for a new connection). */
+  function signOut() {
+    lsDel(K_TOKENS); lsDel(K_PENDING);
     needLogin = false;
     emit({ type: 'account', basketId: '' });
-    if (started) setTimeout(function () { flush(); }, 0);
-    return result(true, 0, '', '', { account: account(), redirecting: false });
-  }
-
-  function loginError(e) {
-    var c = errCode(e);
-    if (c === 'user_cancelled') return fail('CANCELLED');
-    if (c === 'interaction_in_progress') return fail('BUSY');
-    if (isNetworkError(e)) return fail('OFFLINE');
-    warn('signIn', e);
-    return fail('UNKNOWN', 0, c || (e && e.message) || '');
-  }
-
-  /** Disconnects this device (clears the local token cache only; the outbox is kept and waits for a new connection). */
-  function signOut() {
-    var acc = activeAcc;
-    var p = Promise.resolve();
-    if (pca && acc) {
-      p = Promise.resolve().then(function () { return pca.clearCache({ account: acc }); }).catch(function (e) { warn('signOut', e); });
-    }
-    return p.then(function () { setActive(null); needLogin = false; emit({ type: 'account', basketId: '' }); });
+    return Promise.resolve();
   }
 
   // ------------------------------------------------------------------ token + Graph requests
   function getToken(forceRefresh) {
-    var acc = activeAcc || (pca ? safeActive(pca) : null);
-    if (!pca || !acc) return Promise.reject(Object.assign(new Error('no account'), { errorCode: 'no_account_error' }));
-    return Promise.resolve().then(function () {
-      return pca.acquireTokenSilent({ scopes: SCOPES.slice(), account: acc, forceRefresh: !!forceRefresh });
-    }).then(function (r) {
-      if (!r || !r.accessToken) throw Object.assign(new Error('empty token'), { errorCode: 'no_tokens_found' });
-      if (r.account) activeAcc = r.account;
-      return r.accessToken;
-    });
+    var t = tokens();
+    if (!t || !t.refresh) return Promise.reject(authErr('no_account_error'));
+    if (!forceRefresh && t.access && now() < t.accessExp) return Promise.resolve(t.access);
+    if (refreshing) return refreshing;
+    refreshing = tokenRequest({ client_id: clientId(), grant_type: 'refresh_token', refresh_token: t.refresh, scope: AUTH_SCOPE })
+      .then(function (j) { return storeTokens(j, t).access; }, function (e) {
+        if (isInteractionRequired(e) || /^http_40[01]$/.test(errCode(e))) {
+          // refresh token expired (24 h for browser apps) or revoked: keep the user name for the "reconnect" hint, drop the tokens
+          lsDel(K_TOKENS);
+          throw authErr('interaction_required', (e && e.message) || '');
+        }
+        throw e;
+      });
+    var p = refreshing;
+    p.then(function () { refreshing = null; }, function () { refreshing = null; });
+    return p;
   }
 
   function tokenFailure(e) {
@@ -340,6 +321,7 @@
     warn('token', e);
     return fail('UNKNOWN', 0, errCode(e) || (e && e.message) || '');
   }
+
 
   function validName(n) {
     n = String(n == null ? '' : n);
@@ -766,8 +748,7 @@
     stop();
     d = d || {};
     for (var k in deps) if (Object.prototype.hasOwnProperty.call(deps, k)) deps[k] = Object.prototype.hasOwnProperty.call(d, k) ? d[k] : (k === 'indexedDB' || k === 'storage' ? undefined : null);
-    pca = null; initPromise = null; activeAcc = null; needLogin = false;
-    authCallback = false; bridgePromise = null; mailOwnsBridge = false;
+    initPromise = null; needLogin = false; lastAuthError = ''; refreshing = null; captured = null;
     store = { mode: '', db: null, mem: {}, opening: null };
     flushing = null; holdUntil = 0; listeners = [];
   }
@@ -796,7 +777,9 @@
     basketFileName: basketFileName,
     catalogFileName: catalogFileName,
     hasAuthResponse: hasAuthResponse,
-    handleAuthCallback: function () { return hasAuthResponse(loc()) ? runBridge() : null; },
+    handleAuthCallback: function () { return null; },
+    lastSignInError: lastSignInError,
+    _capture: capture,
     _setDeps: _setDeps
   };
   Object.defineProperty(api, 'CLIENT_ID', { enumerable: true, get: function () { return clientId(); } });

@@ -86,6 +86,7 @@
     function look(s) {
       if (!s || s.length < 2) return false;
       var p = '&' + s.substring(1) + '&';
+      if (p.indexOf('&state=omsd') >= 0) return false;   // OmsDrive's own sign-in response (onedrive.js), not MSAL's
       return p.indexOf('&state=') >= 0 && (p.indexOf('&code=') >= 0 || p.indexOf('&error=') >= 0);
     }
     return look(l.hash || '') || look(l.search || '');
