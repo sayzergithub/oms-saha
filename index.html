@@ -320,6 +320,14 @@ body.v-pair .stage{height:calc(100vh - var(--h-top) - var(--safe-b) - var(--safe
 .spill.ok .ic{color:#3dd68c}.spill.warn .ic{color:#ffca16}.spill.err .ic{color:#ff9592}
 .chelp{position:absolute;left:0;right:0;bottom:136px;display:flex;justify-content:center;flex-wrap:wrap}
 .chelp .sbtn{margin:4px 6px}
+/* V13: "+1 makara" offer after a "zaten sepette" read */
+.cplus{position:absolute;left:0;right:0;bottom:136px;display:flex;justify-content:center;pointer-events:none}
+.cplus .sbtn{pointer-events:auto;min-width:200px}
+.stage.serial .cplus{bottom:auto;top:168px}
+.stage.cfg #cplus{display:none!important}
+.stepper{display:flex;align-items:stretch;gap:8px;max-width:260px}
+.stepper .btn{flex:0 0 52px;min-height:var(--h-ctl-lg);padding:0;font-size:24px;line-height:1}
+.stepper input{flex:1;min-width:0;text-align:center}
 .cpause{position:absolute;top:0;right:0;bottom:0;left:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center}
 .cpause button{background:none;border:0;color:#fff;font-size:17px;line-height:24px;min-height:64px;padding:var(--s4);max-width:320px}
 .cpause .ic{display:block;margin:0 auto var(--s2);width:40px;height:40px}
@@ -759,6 +767,7 @@ body.camcfg #bcfgcam{display:none}
   <div id="sercnt" class="sercnt" hidden><b id="sercntn">0</b><span>makara</span></div>
   <ul id="serlist" class="serlist" aria-label="Son eklenen makaralar" hidden></ul>
   <div id="cstate" class="spill" role="status" aria-live="polite"><i class="dot"></i><span>Kamera açılıyor…</span></div>
+  <div id="cplus" class="cplus" hidden><button id="bplus" class="sbtn t done" type="button"><svg class="ic" aria-hidden="true"><use href="#i-add"/></svg><span>+1 makara</span></button></div>
   <div id="chelp" class="chelp" hidden>
     <button id="bsnap" class="sbtn t" type="button"><svg class="ic" aria-hidden="true"><use href="#i-photo"/></svg><span>Fotoğraf çek</span></button>
     <button id="bman3" class="sbtn t" type="button"><svg class="ic" aria-hidden="true"><use href="#i-kbd"/></svg><span>Elle gir</span></button>

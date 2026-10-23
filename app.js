@@ -252,6 +252,7 @@ var FB = {
       else if (kind === 'err') { this.tone(440, 200); if (vib) navigator.vibrate([90, 60, 90]); }
       else if (kind === 'ser') { this.tone(1760, 60); if (vib) navigator.vibrate(30); }
       else if (kind === 'soft') { this.tone(988, 40); if (vib) navigator.vibrate(15); }
+      else if (kind === 'inbasket') { this.tone(1319, 90); this.tone(659, 220, 0.11); if (vib) navigator.vibrate(350); }   /* V13: "zaten sepette" */
       else if (kind === 'stock') { this.tone(660, 90); this.tone(660, 90, 0.15); this.tone(660, 90, 0.3); if (vib) navigator.vibrate([120, 80, 120, 80, 120]); }
     } catch (e) { }
   }
@@ -324,7 +325,10 @@ function lineInfo(l) {
   if (p.lot) sub.push('Lot ' + p.lot);
   if (l.loc) sub.push('Raf ' + l.loc);
   if (l.note) sub.push(l.note);
-  var qty = l.qty != null ? { t: fmtQty(l.qty), src: 'girildi' } : (p.qty != null && p.qty !== '' ? { t: fmtQty(p.qty), src: 'etiket' } : null);
+  var qty = l.qty != null ? { t: fmtQty(l.qty), src: 'girildi', n: l.qty } : (p.qty != null && p.qty !== '' ? { t: fmtQty(p.qty), src: 'etiket', n: +String(p.qty).replace(/[^0-9]/g, '') } : null);
+  var rn = reelsOf(l);
+  if (qty) qty.total = rn > 1 && isFinite(qty.n) && qty.n > 0 ? fmtQty(qty.n * rn) : qty.t;
+  if (rn > 1) { if (qty) qty.t = rn + ' × ' + qty.t; sub.unshift(rn + ' makara' + (qty ? ' · toplam ' + qty.total : '')); }
   var tag = '';
   if (!qty) tag = '<span class="tag warn">' + ico('i-warn') + 'miktar yok</span>';
   else if (!p.mpn && !p.supplierPn) tag = '<span class="tag neutral">önizleme yok</span>';
@@ -400,7 +404,11 @@ function addLine(raw, fmt, src) {
   if (raw.length > MAX_RAW) { FB.go('err'); toast('Kod çok uzun (' + raw.length + ' karakter, en çok ' + MAX_RAW + ').', true); return { err: 'long' }; }
   var b = ensureBasket();
   for (var i = 0; i < b.lines.length; i++) if (b.lines[i].raw === raw) {
-    if (src !== 'camera' && src !== 'serial') { FB.go('dup'); toast('Bu etiket zaten sepette: ' + lineInfo(b.lines[i]).title, true); }
+    if (src !== 'camera' && src !== 'serial') {
+      var dl = b.lines[i];
+      FB.go('inbasket');
+      toast('Bu etiket zaten sepette (' + reelsOf(dl) + ' makara): ' + lineInfo(dl).title + '. Aynı etiketli başka bir makaraysa "+1 makara"ya dokunun.', true, { t: '+1 makara', fn: function () { addReel(dl.id); } });
+    }
     return { dup: true, line: b.lines[i] };
   }
   if (b.lines.length >= MAX_LINES) { FB.go('err'); toast('Sepet dolu (' + MAX_LINES + ' satır). Önce bu sepeti gönderin.', true); return { err: 'full' }; }
@@ -419,6 +427,38 @@ function addLine(raw, fmt, src) {
   render(VIEW.cur);
   return { ok: true, line: l };
 }
+/* V13: identical labels (same part, same lot, same quantity: many labels carry no reel serial) are ONE line with a reel count;
+   the PC adds quantity x reels. Absent / 1 = one reel (older baskets stay valid). */
+var MAX_REELS = 999;
+function reelsOf(l) { var n = l && l.reels; return (typeof n === 'number' && n >= 1) ? Math.min(MAX_REELS, Math.floor(n)) : 1; }
+function addReel(id) {
+  var ls = lines(), l = null;
+  for (var i = 0; i < ls.length; i++) if (ls[i].id === id) l = ls[i];
+  if (!l) return 0;
+  var n = reelsOf(l);
+  if (n >= MAX_REELS) { FB.go('err'); toast('En çok ' + MAX_REELS + ' makara.', true); return n; }
+  l.reels = n + 1; saveBasket(); render(VIEW.cur); FB.go('ok');
+  if (CAM.serial && SER.s) { SER.n++; SER.paint(); }
+  var inf = lineInfo(l), msg = 'Aynı etiketten ' + l.reels + '. makara · ' + inf.title + (inf.qty ? ' · toplam ' + inf.qty.total : '');
+  if (CAM.stream && CAM.mode === 'scan') { CAM.state(msg, 'ok'); CAM.flash('hit'); CAM.armIdle(); }
+  else toast(msg, false, { t: 'Geri al', fn: function () { l.reels = Math.max(1, reelsOf(l) - 1); if (l.reels === 1) delete l.reels; saveBasket(); render(VIEW.cur); } });
+  return l.reels;
+}
+/* "+1 makara" on the camera stage, offered for 8 s after a "zaten sepette" read (never automatic: re-reading the same reel by
+   accident must not count it twice) */
+var PLUS = {
+  id: null, t: null,
+  show: function (line) {
+    if (!line) return;
+    this.id = line.id; clearTimeout(this.t);
+    $('bplus').querySelector('span').textContent = '+1 makara (şu an ' + reelsOf(line) + ')';
+    $('cplus').hidden = false; $('chelp').hidden = true;
+    var self = this; this.t = setTimeout(function () { self.hide(); }, 8000);
+  },
+  hide: function () { clearTimeout(this.t); this.id = null; $('cplus').hidden = true; }
+};
+$('bplus').addEventListener('click', function () { var id = PLUS.id; if (!id) return; var n = addReel(id); var l = null; lines().forEach(function (x) { if (x.id === id) l = x; }); if (l && n) PLUS.show(l); });
+
 function removeLine(id, silent) {
   var ls = lines();
   for (var i = 0; i < ls.length; i++) if (ls[i].id === id) {
@@ -503,7 +543,12 @@ function editLine(id, opt) {
   var flds = '<div class="fld" style="margin-top:16px"><label for="e_qty">Miktar</label>' +
     '<input id="e_qty" type="number" inputmode="numeric" pattern="[0-9]*" min="1" step="1" enterkeyhint="next" placeholder="' + esc(ph) + '" value="' + (l.qty != null ? esc(l.qty) : '') + '"' +
       (opt.after && !opt.noFocus && !(p.qty != null && p.qty !== '') ? ' autofocus' : '') + '>' +
-    '<p class="help">Kısmen kullanılmış makarada kalan miktarı yazın; etiketteki miktarın yerine geçer.</p></div>' +
+    '<p class="help">Makara başına miktar. Kısmen kullanılmış makarada kalan miktarı yazın; etiketteki miktarın yerine geçer.</p></div>' +
+    '<div class="fld"><label for="e_reels">Makara sayısı <small>(aynı etiketli)</small></label><div class="stepper">' +
+      '<button type="button" class="btn btn-sec" id="e_rm" aria-label="Bir makara azalt">−</button>' +
+      '<input id="e_reels" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="' + MAX_REELS + '" step="1" value="' + reelsOf(l) + '">' +
+      '<button type="button" class="btn btn-sec" id="e_rp" aria-label="Bir makara artır">+</button></div>' +
+    '<p class="help" id="e_rhelp">Elinizde aynı etiketli birden çok makara varsa hepsini tek tek okutmanız gerekmez: sayıyı yazın. PC miktar × makara sayısı kadar ekler.</p></div>' +
     '<div class="fld"><label for="e_loc">Raf No <small>(boş bırakılabilir)</small></label><input id="e_loc" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" maxlength="64" enterkeyhint="next" value="' + esc(l.loc) + '"></div>' +
     '<div class="fld"><label for="e_note">Not</label><input id="e_note" type="text" autocomplete="off" maxlength="200" enterkeyhint="done" value="' + esc(l.note) + '"></div>';
   var acts = '<div id="e_msg" class="msg" role="status" aria-live="polite"></div>' +
@@ -521,6 +566,9 @@ function editLine(id, opt) {
       qn = Number(q.replace(/[.\s]/g, '').replace(',', '.'));
       if (!isFinite(qn) || qn <= 0 || Math.floor(qn) !== qn || qn > 1e9) { $('e_qty').setAttribute('aria-invalid', 'true'); setMsg('e_msg', 'Miktar 1 veya daha büyük bir tam sayı olmalı (ya da boş).', 'err'); $('e_qty').focus(); return; }
     }
+    var rv = Number($('e_reels').value);
+    if (!isFinite(rv) || rv < 1 || Math.floor(rv) !== rv || rv > MAX_REELS) { $('e_reels').setAttribute('aria-invalid', 'true'); setMsg('e_msg', 'Makara sayısı 1 ile ' + MAX_REELS + ' arasında bir tam sayı olmalı.', 'err'); $('e_reels').focus(); return; }
+    if (rv > 1) l.reels = rv; else delete l.reels;
     l.qty = qn; l.loc = $('e_loc').value.trim().slice(0, 64); l.note = $('e_note').value.trim().slice(0, 200);
     saveBasket(); closeModal(); render(VIEW.cur); toast('Satır kaydedildi');
   }
@@ -529,6 +577,10 @@ function editLine(id, opt) {
   $('e_copy').onclick = function () { copyText(l.raw, 'Ham kod kopyalandı'); };
   $('e_del').onclick = function () { closeModal(); removeLine(l.id); };
   $('e_qty').oninput = function () { this.removeAttribute('aria-invalid'); setMsg('e_msg', ''); };
+  function stepReels(d) { var v = Math.floor(Number($('e_reels').value) || 1) + d; $('e_reels').value = String(Math.max(1, Math.min(MAX_REELS, v))); $('e_reels').removeAttribute('aria-invalid'); setMsg('e_msg', ''); }
+  $('e_rm').onclick = function () { stepReels(-1); };
+  $('e_rp').onclick = function () { stepReels(1); };
+  $('e_reels').oninput = function () { this.removeAttribute('aria-invalid'); setMsg('e_msg', ''); };
   ['e_qty', 'e_loc'].forEach(function (id, i) { $(id).onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); $(i ? 'e_note' : 'e_loc').focus(); } }; });
   $('e_note').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); save(); } };
 }
@@ -713,7 +765,7 @@ async function sealCtx(b, fromHist) {
     var now = Date.now();
     var obj = {
       v: 1, type: 'basket', basket: b.basket, dev: S.pair.dev, devName: S.pair.name || '', user: S.user || '', created: b.created, sent: iso(now),
-      lines: b.lines.map(function (l) { return { id: l.id, raw: l.raw, fmt: l.fmt || '', qty: l.qty == null ? null : l.qty, loc: l.loc || '', note: l.note || '', ts: l.ts }; })
+      lines: b.lines.map(function (l) { var o = { id: l.id, raw: l.raw, fmt: l.fmt || '', qty: l.qty == null ? null : l.qty, loc: l.loc || '', note: l.note || '', ts: l.ts }; if (reelsOf(l) > 1) o.reels = reelsOf(l); return o; })
     };
     var json = JSON.stringify(obj), deflate = false;
     try { deflate = !!OmsEnvelope.supportsDeflate(); } catch (e) { }
@@ -1330,7 +1382,7 @@ var CAM = {
     st.classList.toggle('serial', ser); $('sercnt').hidden = !ser; $('bdone').hidden = !ser; $('bmanual').hidden = ser; if (!ser) $('serlist').hidden = true;
     $('cfghint').hidden = !(on && cfg && hasCam());
     $('bmanual').querySelector('span').textContent = this.mode === 'pair' ? 'Kodu yapıştır' : 'Elle';
-    if (!on) { $('cpause').hidden = true; $('chelp').hidden = true; }
+    if (!on) { $('cpause').hidden = true; $('chelp').hidden = true; PLUS.hide(); }
   },
   start: async function (mode) {
     this.mode = mode || 'scan';
@@ -1569,6 +1621,7 @@ var CAM = {
     var wait = r.ok && smode() === 'manual';
     if (wait) { this.paused = true; clearTimeout(this.timer); }   /* the editor opens once the stock lookup is done */
     if (r.ok) {
+      PLUS.hide();
       /* scanning stays paused until the (fast, local) stock lookup is done, so the feedback is one clear signal */
       stockCheck(r.line).then(function (st) {
         var title = lineInfo(r.line).title;
@@ -1584,8 +1637,9 @@ var CAM = {
         if (wait) self.editAfter(r.line);
       });
     } else if (r.dup) {
-      FB.go('dup'); this.flash('dup');
-      this.state('Zaten sepette · ' + lineInfo(r.line).title, 'warn');
+      FB.go('inbasket'); this.flash('dup');
+      this.state('Zaten sepette · ' + lineInfo(r.line).title + ' · ' + reelsOf(r.line) + ' makara', 'warn');
+      PLUS.show(r.line);
       this.schedule(600);
     } else { this.state(r.err === 'full' ? 'Sepet dolu' : 'Kod eklenemedi', 'err'); this.schedule(1200); }
   },
@@ -1604,10 +1658,11 @@ var CAM = {
     var d = SER.offer(hits);
     if (d && d.action === 'add' && d.hit) { if (SER.add(d.hit, now)) { this.schedule(SER_GAP_MS); return; } this.schedule(1200); return; }
     if (d && d.action === 'ignore' && d.reason === 'inBasket' && now - SER.dupT > 2500) {
-      SER.dupT = now; FB.go('soft'); this.flash('dup');
+      SER.dupT = now; FB.go('inbasket'); this.flash('dup');
       var ex = null, raw = d.hit ? String(d.hit.text || d.hit.rawValue || '') : '';
       lines().forEach(function (l) { if (l.raw === raw.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '')) ex = l; });
-      this.state('Zaten sepette' + (ex ? ' · ' + lineInfo(ex).title : ''), 'warn');
+      this.state('Zaten sepette' + (ex ? ' · ' + lineInfo(ex).title + ' · ' + reelsOf(ex) + ' makara' : ''), 'warn');
+      if (ex) PLUS.show(ex);
     } else if (d && d.action === 'wait') this.state('Okunuyor…');
     this.schedule(gap);
   }
