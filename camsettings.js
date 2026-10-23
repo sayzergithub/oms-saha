@@ -1052,6 +1052,133 @@
   }
 
   // ---------------------------------------------------------------- public API
+  // ---------------------------------------------------------------- V12 live HUD: what the camera is REALLY delivering
+  // User report: after switching camera / resolution it was impossible to tell whether anything changed. The HUD reads the live
+  // stream, not the saved preference: camera = the running track's label (+ its place among the cameras), resolution = the frame
+  // size the <video> actually decodes (videoWidth x videoHeight), fps = frames presented during the last second
+  // (requestVideoFrameCallback; "~" + settings.frameRate where that API is missing). It flashes when the camera or size changes.
+  var HUD_CSS = '.camhud{font:10px/12px ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;color:#8dffa0;' +
+    'background:rgba(0,0,0,.72);border-radius:6px;padding:2px 6px;pointer-events:none;white-space:nowrap;overflow:hidden;' +
+    'font-variant-numeric:tabular-nums;transition:color .3s,background-color .3s}' +
+    '.camhud[hidden]{display:none}' +
+    '.camhud.inrow{flex:0 1 auto;min-width:0;margin-left:8px}' +
+    '.camhud.abs{position:absolute;left:8px;top:8px;max-width:calc(100% - 16px);z-index:2}' +
+    '.camhud div{overflow:hidden;text-overflow:ellipsis}' +
+    '.camhud.chg{color:#000;background:#ffca16}';
+
+  function hudShortName(label) {
+    var s = String(label || '');
+    var lens = lensOf(s);
+    if (lens) return { ultra: 'ultra geniş', tele: 'tele', multi: 'çoklu', wide: 'geniş' }[lens];
+    var m = /camera2?\s*(\d+)/i.exec(s);   // Android "camera2 0, facing back"
+    if (m) return 'cam' + m[1];
+    return s.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '');   // USB webcams: drop the "(046d:0825)" vendor id
+  }
+  /** Pure formatter (node-tested): {label, facing, idx, n, w, h, fps, approx} -> three short lines. */
+  function hudLines(i) {
+    i = i || {};
+    var face = i.facing === 'environment' ? 'ARKA' : i.facing === 'user' ? 'ÖN' : 'KAM';
+    var l1 = face + (i.n > 1 && i.idx > 0 ? ' ' + i.idx + '/' + i.n : '');
+    var nm = hudShortName(i.label);
+    if (nm) l1 += ' · ' + nm;
+    var l2 = i.w > 0 && i.h > 0 ? i.w + '×' + i.h + ' ' + fmtMP(i.w, i.h) : '—×— MP';
+    var l3 = isNum(i.fps) && i.fps > 0 ? (i.approx ? '~' : '') + (i.fps < 10 ? fmtNum(i.fps, 1) : String(Math.round(i.fps))) + ' fps' : '-- fps';
+    return [l1, l2, l3];
+  }
+
+  /** Attaches a HUD to a <video>. When the video's stage has a top button row (.stop) the HUD sits in that row, left, after the
+   *  buttons (never over a control); otherwise it floats top-left in the video's parent. Returns {el, update, destroy}; idempotent. */
+  function hud(videoEl) {
+    var doc = env.doc();
+    if (!videoEl || !doc || !doc.createElement) return null;
+    if (videoEl.__omsHud) return videoEl.__omsHud;
+    if (!doc.getElementById('omscamhudcss')) {
+      var css = doc.createElement('style'); css.id = 'omscamhudcss'; css.textContent = HUD_CSS;
+      (doc.head || doc.documentElement).appendChild(css);
+    }
+    var host = videoEl.parentElement, row = host && host.querySelector ? host.querySelector('.stop') : null;
+    var el = doc.createElement('div');
+    el.className = 'camhud ' + (row ? 'inrow' : 'abs'); el.setAttribute('aria-hidden', 'true'); el.hidden = true;
+    var lines = [doc.createElement('div'), doc.createElement('div'), doc.createElement('div')];
+    lines.forEach(function (d) { el.appendChild(d); });
+    if (row) row.insertBefore(el, row.querySelector('.sp') || null); else if (host) host.appendChild(el);
+    var w = env.win();
+    var S = { timer: null, rvfc: false, f0: 0, t0: 0, n: 0, fps: null, key: '', devKey: null, list: null, flashT: null, dead: false };
+
+    function track() { var so = videoEl.srcObject; try { return so && so.getVideoTracks ? so.getVideoTracks()[0] || null : null; } catch (e) { return null; } }
+    function onFrame(now, meta) {
+      if (S.dead || !videoEl.srcObject) { S.rvfc = false; return; }
+      var n = meta && isNum(meta.presentedFrames) ? meta.presentedFrames : S.n + 1;
+      if (!S.t0) { S.t0 = now; S.f0 = n; }
+      else if (now - S.t0 >= 1000) { S.fps = (n - S.f0) * 1000 / (now - S.t0); S.t0 = now; S.f0 = n; }
+      S.n = n;
+      videoEl.requestVideoFrameCallback(onFrame);
+    }
+    function cams(devId) {
+      if (S.devKey === devId) return;
+      S.devKey = devId; S.list = lastList;
+      var m = md();
+      if (m && m.enumerateDevices) Promise.resolve().then(function () { return m.enumerateDevices(); }).then(function (ds) {
+        S.list = (ds || []).filter(function (d) { return d && d.kind === 'videoinput'; }); paint();
+      }, noop);
+    }
+    function paint() {
+      var t = track();
+      if (S.dead || !t || t.readyState === 'ended') { el.hidden = true; return; }
+      var s = {}; try { s = t.getSettings ? t.getSettings() : {}; } catch (e) { }
+      var devId = s.deviceId || '';
+      cams(devId);
+      var idx = 0, n = S.list ? S.list.length : 0;
+      for (var i = 0; i < n; i++) if (S.list[i].deviceId === devId) idx = i + 1;
+      var vw = videoEl.videoWidth || s.width || 0, vh = videoEl.videoHeight || s.height || 0;
+      var fps = S.rvfc ? S.fps : (isNum(s.frameRate) ? s.frameRate : null);
+      var txt = hudLines({ label: t.label, facing: s.facingMode || facingOf(t.label), idx: idx, n: n, w: vw, h: vh, fps: fps, approx: !S.rvfc });
+      for (var j = 0; j < 3; j++) if (lines[j].textContent !== txt[j]) lines[j].textContent = txt[j];
+      el.title = (t.label || '') + ' · ' + txt[1] + ' · ' + txt[2];
+      el.hidden = false;
+      var key = devId + '|' + vw + 'x' + vh;
+      if (S.key && vw && key !== S.key) {   // camera or resolution really changed -> visible flash
+        el.classList.add('chg'); env.clearTimeout(S.flashT);
+        S.flashT = env.setTimeout(function () { el.classList.remove('chg'); }, 1800);
+      }
+      if (vw) S.key = key;
+    }
+    function start() {
+      if (S.dead) return;
+      if (!S.rvfc && videoEl.requestVideoFrameCallback) { S.rvfc = true; S.t0 = 0; S.fps = null; videoEl.requestVideoFrameCallback(onFrame); }
+      if (!S.timer && w && w.setInterval) S.timer = w.setInterval(function () { if (!videoEl.srcObject) stop(); else paint(); }, 1000);
+      paint();
+    }
+    function stop() {
+      if (S.timer && w && w.clearInterval) w.clearInterval(S.timer);
+      S.timer = null; S.fps = null; S.t0 = 0; el.hidden = true;   // S.key kept: reopening on another camera still flashes
+    }
+    var evs = { loadedmetadata: start, playing: start, resize: function () { if (videoEl.srcObject) start(); }, emptied: stop };
+    for (var k in evs) if (has(evs, k)) videoEl.addEventListener(k, evs[k]);
+    if (videoEl.srcObject) start();
+    var ctl = {
+      el: el, update: paint,
+      destroy: function () {
+        S.dead = true; stop();
+        for (var k2 in evs) if (has(evs, k2)) videoEl.removeEventListener(k2, evs[k2]);
+        if (el.parentNode) el.parentNode.removeChild(el);
+        videoEl.__omsHud = null;
+      }
+    };
+    videoEl.__omsHud = ctl;
+    return ctl;
+  }
+  /** Both pages: the scan stage (#cvid) and the LAN page's camera-settings preview (#kvid). Safe to call more than once. */
+  function hudAuto() {
+    var doc = env.doc(); if (!doc || !doc.getElementById) return;
+    ['cvid', 'kvid'].forEach(function (id) { var v = doc.getElementById(id); if (v) hud(v); });
+  }
+  (function () {
+    var doc = env.doc();
+    if (!doc || !doc.addEventListener || !doc.getElementById) return;   // node tests: no DOM
+    if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', hudAuto); else hudAuto();
+  })();
+
   var API = {
     version: '6.0',
     KEY: KEY,
@@ -1084,6 +1211,8 @@
     fpsPresets: fpsPresets,
     resLabel: resLabel,
     fmtMP: fmtMP,
+    hud: hud,
+    hudLines: hudLines,
     // test hooks
     _env: env,
     _reset: function () { st = fresh(); loaded = false; autoPick = null; lastList = null; cur = { stream: null, track: null, el: null }; if (tstate) tstate = new WeakMap(); },

@@ -1,7 +1,7 @@
 /* OMS Saha service worker: offline, cache-first, versioned.
    VERSION is replaced by tools/publish_field.ps1 with a date-time stamp; every publish = new cache, old ones are dropped.
    All paths are relative to this file, so the page works under any sub-path (/repo-name/ on GitHub Pages, /saha/ on the PC). */
-const VERSION = '20261023-114025';
+const VERSION = '20261023-122055';
 const CACHE = 'oms-saha-' + VERSION;
 const ASSETS = ['./', './index.html', './app.js', './envelope.js', './labelparse.js', './zxing.min.js',
   './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png',
