@@ -62,6 +62,7 @@
   var cur = { stream: null, track: null, el: null };
   var tstate = (typeof WeakMap === 'function') ? new WeakMap() : null;
   var saveTimer = null;
+  var lastRep = null;   // V13b: what the last open() asked for, what it got, what it had to relax (lastOpen())
 
   function fresh() { return { v: VERSION, sel: null, last: null, dev: {} }; }
 
@@ -344,9 +345,20 @@
     close();
     stopEl(videoEl);
     var pre = (!st.sel && !explicitDev && !autoPick) ? listCameras().then(noop, noop) : Promise.resolve();
-    var opt = {}, tries = 0, firstErr = null, deviceDropped = false;
+    var opt = {}, tries = 0, firstErr = null, deviceDropped = false, busyWaits = 0;
     var savedRes = parseRes(rec(curKey()).res) || AUTO_RES;
     opt.res = savedRes;
+    var rep = { at: Date.now(), trace: [], relaxed: [], fallback: null };
+    function wantId() { var t = explicitDev ? null : targetDev(); return explicitDev ? exactOf(extra.video ? extra.video.deviceId : extra.deviceId) : (t && t.id) || ''; }
+    function exactOf(d) { return d && typeof d === 'object' ? String(d.exact || d.ideal || '') : String(d || ''); }
+    function relax() {   // one step, never the camera itself: fps firm → preferred → none, zoom off, then smaller sizes
+      if (!opt.fpsSoft && rec(curKey()).fps) { opt.fpsSoft = true; rep.relaxed.push('fps-tercih'); return true; }
+      if (!opt.noFps && rec(curKey()).fps) { opt.noFps = true; rep.relaxed.push('fps-yok'); return true; }
+      if (!opt.noZoom && ptzWanted()) { opt.noZoom = true; rep.relaxed.push('zoom-yok'); return true; }
+      if (opt.res) { opt.res = lowerRes(opt.res); rep.relaxed.push(opt.res ? 'boyut-' + opt.res.w + 'x' + opt.res.h : 'boyut-serbest'); return true; }
+      return false;
+    }
+    function wait(ms) { var w = env.win(); return new Promise(function (r) { if (w && typeof w.setTimeout === 'function') w.setTimeout(r, ms); else setTimeout(r, ms); }); }   // real time: the camera needs it
 
     function attempt() {
       var c = constraints(extra, opt);
@@ -354,30 +366,36 @@
       tries++;
       return getUM(c).catch(function (e) {
         var name = (e && e.name) || '';
-        if (!firstErr) firstErr = e;
-        if (tries >= 8 || name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError' || name === 'TypeError') throw e;
-        var cons = e && e.constraint;
+        var cons = (e && e.constraint) || '';
         var v = c.video || {};
-        // stale / missing camera id → follow the label, else back camera by facingMode
-        if (v.deviceId && !deviceDropped && (name === 'NotFoundError' || name === 'DevicesNotFoundError' || (name === 'OverconstrainedError' && (!cons || cons === 'deviceId')))) {
-          return listCameras().then(function () {
-            var t = targetDev();
-            if (!explicitDev && t && t.id && t.id !== (v.deviceId.exact || v.deviceId)) return attempt();   // remapped by label
-            deviceDropped = true;
-            if (!explicitDev && st.sel) { st.sel = null; save(); }
-            return attempt();
+        rep.trace.push(name + (cons ? '(' + cons + ')' : ''));
+        if (!firstErr) firstErr = e;
+        if (tries >= 10 || name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError' || name === 'TypeError') throw e;
+        // Android: the previous camera is still being released → same request again after a short pause (not a smaller one)
+        if ((name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') && busyWaits < 2) { busyWaits++; return wait(350 * busyWaits).then(attempt); }
+        var asked = v.deviceId && !deviceDropped ? exactOf(v.deviceId) : '';
+        if (asked && (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError')) {
+          // "deviceId" / "" / NotFound only means "camera gone" when it is really not in the list (and not findable by its label)
+          return listCameras().then(function (list) {
+            var listed = (list || []).some(function (d) { return d.deviceId === asked; });
+            if (!listed) {
+              var t = targetDev();
+              if (!explicitDev && t && t.id && t.id !== asked) { rep.relaxed.push('kimlik-yenilendi'); return attempt(); }   // same camera, new id (label)
+              if (!(list || []).length) return relax() ? attempt() : Promise.reject(firstErr || e);   // list unavailable: never guess
+              deviceDropped = true;   // really gone: open the back camera for now, KEEP the user's choice and say so
+              rep.fallback = 'Seçilen kamera bu cihazda bulunamadı (' + ((st.sel && st.sel.label) || asked.slice(0, 8)) + ')';
+              return attempt();
+            }
+            if (cons === 'frameRate' && !opt.fpsSoft) { opt.fpsSoft = true; rep.relaxed.push('fps-tercih'); return attempt(); }
+            if (cons === 'zoom' && !opt.noZoom) { opt.noZoom = true; rep.relaxed.push('zoom-yok'); return attempt(); }
+            if (relax()) return attempt();
+            throw firstErr || e;
           });
         }
         if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError' || name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') {
-          if (cons && cons !== 'width' && cons !== 'height' && cons !== 'deviceId' && v[cons] !== undefined && !(extra && extra.video && has(extra.video, cons))) {
-            if (cons === 'zoom') opt.noZoom = true;
-            else if (cons === 'frameRate') { if (!opt.fpsSoft) opt.fpsSoft = true; else opt.noFps = true; }   // firm → preferred → none
-            else return Promise.reject(e);
-            return attempt();
-          }
-          if (opt.res) { opt.res = lowerRes(opt.res); if (!opt.res) { opt.noFps = true; opt.noZoom = true; } return attempt(); }
-          if (!opt.fpsSoft) { opt.fpsSoft = true; return attempt(); }
-          if (!opt.noFps || !opt.noZoom) { opt.noFps = true; opt.noZoom = true; return attempt(); }
+          if (cons === 'frameRate' && !opt.fpsSoft) { opt.fpsSoft = true; rep.relaxed.push('fps-tercih'); return attempt(); }
+          if (cons === 'zoom' && !opt.noZoom) { opt.noZoom = true; rep.relaxed.push('zoom-yok'); return attempt(); }
+          if (relax()) return attempt();
         }
         throw firstErr || e;
       });
@@ -386,6 +404,11 @@
     return pre.then(attempt).then(function (stream) {
       var track = (stream.getVideoTracks && stream.getVideoTracks()[0]) || null;
       cur = { stream: stream, track: track, el: videoEl || null };
+      var ws = wantId(), got = trackDeviceId(track), gs = getSet(track), pr = rec(curKey());
+      rep.want = { id: ws, label: (st.sel && ws === st.sel.id && st.sel.label) || '', res: pr.res || 'auto', fps: pr.fps || 0 };
+      rep.got = { id: got, label: track ? String(track.label || '') : '', w: gs.width || 0, h: gs.height || 0, fps: isNum(gs.frameRate) ? gs.frameRate : 0, facing: gs.facingMode || '' };
+      rep.deviceOk = !ws || !got || ws === got;
+      lastRep = rep;
       if (videoEl) {
         try { videoEl.muted = true; videoEl.setAttribute('muted', ''); videoEl.setAttribute('playsinline', ''); videoEl.playsInline = true; videoEl.setAttribute('autoplay', ''); } catch (e) { }
         try { videoEl.srcObject = stream; } catch (e) { }
@@ -401,14 +424,28 @@
             var r = rec(id, true); if (track.label) r.label = String(track.label).slice(0, 120);
             save();
           }
-          return apply(track);
+          return apply(track).then(function (a) { rep.skipped = (a && a.skipped) || []; return a; });
         }
       }).then(function () {
         return track ? fpsGuard(track).then(noop, noop) : null;
       }).then(function () {
-        return { stream: stream, track: track, caps: getCaps(track), settings: getSet(track) };
+        var gs2 = getSet(track); if (rep.got) { rep.got.w = gs2.width || rep.got.w; rep.got.h = gs2.height || rep.got.h; if (isNum(gs2.frameRate)) rep.got.fps = gs2.frameRate; }
+        return { stream: stream, track: track, caps: getCaps(track), settings: gs2, report: rep };
       });
     });
+  }
+
+  /** One Turkish sentence when the last open did not give exactly what was chosen; '' when it did. */
+  function openIssue(r) {
+    r = r || lastRep; if (!r || !r.got) return '';
+    var out = [];
+    if (r.fallback) out.push(r.fallback + '; şimdilik otomatik kamera açıldı');
+    else if (!r.deviceOk) out.push('Tarayıcı seçilen kamera yerine başka bir kamera açtı (' + (r.got.label || 'bilinmeyen') + ')');
+    var want = parseRes(r.want && r.want.res);
+    if (want && r.got.w && r.got.w * r.got.h < want.w * want.h * 0.9) out.push('istenen ' + want.w + '×' + want.h + ' yerine ' + r.got.w + '×' + r.got.h);
+    if (r.want && r.want.fps && r.got.fps > 0 && r.got.fps < r.want.fps * 0.8) out.push('istenen ' + r.want.fps + ' kare/s yerine ' + Math.round(r.got.fps));
+    if (r.skipped && r.skipped.length) out.push('uygulanamayan ayar: ' + r.skipped.map(function (k) { return NAMES[k] || k; }).join(', '));
+    return out.join(' · ');
   }
 
   // ---------------------------------------------------------------- applying settings
@@ -1050,6 +1087,8 @@
         if (want && isNum(s.width) && Math.max(s.width, s.height) * Math.min(s.width, s.height) < want.w * want.h * 0.9) ok = false;
         if (pr.fps && isNum(s.frameRate) && s.frameRate > 0 && s.frameRate < pr.fps * 0.8) ok = false;
       }
+      var iss = t && lastRep && cur.track === t ? openIssue(lastRep) : '';
+      if (iss) return { ok: false, text: 'Kaydedildi, ama: ' + iss + '.' + (lastRep && lastRep.fallback ? ' Kamerayı listeden yeniden seçin.' : '') };
       var text = 'Kaydedildi. Tarama bu kamerayla açılır' + (parts.length ? ': ' + parts.join(' · ') : '') + '.';
       if (!ok) text = 'Kaydedildi, ama kamera istenen değeri vermiyor' + (parts.length ? ' (şu an ' + parts.join(' · ') + ')' : '') +
         '. Telefon bu kamerada bu çözünürlük/kare hızı birleşimini desteklemiyor; daha düşük bir çözünürlük seçin.';
@@ -1110,6 +1149,7 @@
       if (!t) rows.push(['Durum', 'Kamera kapalı']);
       else {
         rows.push(['Kamera', t.label || (s.deviceId ? 'Kimlik ' + String(s.deviceId).slice(0, 8) : '—')]);
+        if (lastRep && cur.track === t) { var iss = openIssue(lastRep); rows.push(['Seçilenler', iss ? '⚠ ' + iss : '✓ seçilen kamera ve ayarlar uygulandı']); }
         if (isNum(s.width) && isNum(s.height)) { rows.push(['Çözünürlük', s.width + '×' + s.height]); rows.push(['Megapiksel', fmtMP(s.width, s.height)]); }
         if (isNum(s.frameRate)) rows.push(['Kare hızı', fmtNum(s.frameRate, 1) + ' kare/s']);
         if (s.facingMode) rows.push(['Yön', s.facingMode === 'environment' ? 'Arka' : s.facingMode === 'user' ? 'Ön' : s.facingMode]);
@@ -1216,7 +1256,7 @@
   /** Pure formatter (node-tested): {label, facing, idx, n, w, h, fps, approx} -> three short lines. */
   function hudLines(i) {
     i = i || {};
-    var face = i.facing === 'environment' ? 'ARKA' : i.facing === 'user' ? 'ÖN' : 'KAM';
+    var face = (i.wrong ? '⚠ ' : '') + (i.facing === 'environment' ? 'ARKA' : i.facing === 'user' ? 'ÖN' : 'KAM');
     var l1 = face + (i.n > 1 && i.idx > 0 ? ' ' + i.idx + '/' + i.n : '');
     var nm = hudShortName(i.label);
     if (nm) l1 += ' · ' + nm;
@@ -1272,7 +1312,7 @@
       for (var i = 0; i < n; i++) if (S.list[i].deviceId === devId) idx = i + 1;
       var vw = videoEl.videoWidth || s.width || 0, vh = videoEl.videoHeight || s.height || 0;
       var fps = S.rvfc ? S.fps : (isNum(s.frameRate) ? s.frameRate : null);
-      var txt = hudLines({ label: t.label, facing: s.facingMode || facingOf(t.label), idx: idx, n: n, w: vw, h: vh, fps: fps, approx: !S.rvfc, camFps: s.frameRate });
+      var txt = hudLines({ label: t.label, facing: s.facingMode || facingOf(t.label), idx: idx, n: n, w: vw, h: vh, fps: fps, approx: !S.rvfc, camFps: s.frameRate, wrong: !!(lastRep && lastRep.got && lastRep.got.id === devId && (lastRep.fallback || !lastRep.deviceOk)) });
       for (var j = 0; j < 3; j++) if (lines[j].textContent !== txt[j]) lines[j].textContent = txt[j];
       el.title = (t.label || '') + ' · ' + txt[1] + ' · ' + txt[2];
       el.hidden = false;
@@ -1350,6 +1390,8 @@
     resPresets: resPresets,
     fpsPresets: fpsPresets,
     fpsMax: fpsMax,
+    lastOpen: function () { return lastRep; },
+    openIssue: openIssue,
     resLabel: resLabel,
     fmtMP: fmtMP,
     hud: hud,

@@ -1412,6 +1412,8 @@ var CAM = {
     if (this.mode === 'cfg') { this.state('Önizleme · ayarlar canlı uygulanır'); renderCamPanel(); try { $('stage').scrollIntoView({ block: 'start' }); } catch (e) { } return; }
     if (this.serial) SER.begin();
     this.state(this.mode === 'pair' ? 'PC ekranındaki QR kodu çerçeveye alın' : this.serial ? 'Makaraları sırayla çerçeveden geçirin' : 'Etiketi çerçeveye alın');
+    var iss = hasCam() && OmsCam.openIssue ? OmsCam.openIssue() : '';   /* V13b: say it when the chosen camera / settings did not fully apply */
+    if (iss) this.state(iss, 'warn');
     this.armIdle(); this.lock(true); this.schedule(300);
     try { $('stage').scrollIntoView({ block: 'start' }); } catch (e) { }
   },
