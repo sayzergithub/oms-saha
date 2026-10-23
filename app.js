@@ -21,7 +21,8 @@ var MAX_LINES = 2000, MAX_RAW = 8192, HIST_DAYS = 30, MAILTO_MAX = 60000, DUP_MS
 var K = { pair: 'oms.saha.pair', user: 'oms.saha.user', loc: 'oms.saha.loc', snd: 'oms.saha.snd', vib: 'oms.saha.vib', cam: 'oms.saha.cam',
           basket: 'oms.saha.basket', hist: 'oms.saha.hist', catTry: 'oms.saha.cattry',
           cloud: 'oms.saha.cloud', guided: 'oms.saha.guided', adv: 'oms.saha.adv', welcomed: 'oms.saha.welcomed',
-          smode: 'oms.saha.smode', drvTry: 'oms.saha.drvtry', drvSend: 'oms.saha.drvsend', catEtag: 'oms.saha.catetag' };
+          smode: 'oms.saha.smode', drvTry: 'oms.saha.drvtry', drvSend: 'oms.saha.drvsend', catEtag: 'oms.saha.catetag',
+          lanOk: 'oms.saha.lanok', lanCertHide: 'oms.saha.lancerthide' };
 var CAT_STALE_MS = 12 * 3600000, CAT_RETRY_MS = 30 * 60000, DRV_CAT_STALE_MS = 30 * 60000, DRV_CAT_RETRY_MS = 10 * 60000, SER_GAP_MS = 120;
 var IS_ANDROID = /Android/i.test(navigator.userAgent || '');
 var IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -453,10 +454,11 @@ document.addEventListener('keydown', function (e) {
 
 /* ----- basket view ----- */
 function renderBasket() {
-  var ls = lines(), n = ls.length, on = driveOn();
-  if (!DRV.busy) $('bsendtx').textContent = on ? 'OneDrive\'a gönder' : 'Gönder';
-  $('bsend').querySelector('use').setAttribute('href', on ? '#i-cloudup' : '#i-send');
-  $('bsendmore').hidden = !on;
+  var ls = lines(), n = ls.length, on = driveOn(), lan = lanOn();
+  if (!DRV.busy && !LANS.busy) $('bsendtx').textContent = lan ? 'Yerel ağdan gönder' : on ? 'OneDrive\'a gönder' : 'Gönder';
+  $('bsend').querySelector('use').setAttribute('href', lan ? '#i-lan' : on ? '#i-cloudup' : '#i-send');
+  $('bsendmore').hidden = !(on || lan);
+  renderLanLine(); lanKick();
   $('bempty').hidden = n > 0; $('blist').hidden = n === 0; $('sendbar').hidden = n === 0; $('bdz').hidden = n === 0; $('bhint').hidden = n === 0;
   $('bcnt').textContent = n ? fmtQty(n) + ' satır' : '';
   $('bcnt').hidden = !n;
@@ -474,7 +476,7 @@ $('bclear').addEventListener('click', async function () {
 });
 $('bsend').addEventListener('click', function () {
   if (!S.basket || !S.basket.lines.length) return;
-  if (driveOn()) driveSend(S.basket, false, this); else startSend(S.basket, false);
+  if (lanOn()) lanSend(S.basket, false, this); else if (driveOn()) driveSend(S.basket, false, this); else startSend(S.basket, false);
 });
 $('bsendmore').addEventListener('click', function () { if (S.basket && S.basket.lines.length) startSend(S.basket, false); });
 
@@ -543,7 +545,7 @@ function renderHist() {
     if (n > 200) items += '<li>… ve ' + fmtQty(n - 200) + ' satır daha</li>';
     var ns = x.sends.length, st = histState(x);
     h += '<div class="card hcard"><div class="hh"><div><b>' + esc(fmtTime(last)) + '</b><span class="small">' + fmtQty(n) + ' satır · ' +
-      (ns > 1 ? ns + ' kez gönderildi' : ns ? 'gönderildi' : 'henüz gönderilmedi') + (x.via === 'direct' && ns ? ' (doğrudan)' : x.via === 'drive' && ns ? ' (OneDrive)' : '') + (x.user ? ' · ' + esc(x.user) : '') + '</span></div>' +
+      (ns > 1 ? ns + ' kez gönderildi' : ns ? 'gönderildi' : 'henüz gönderilmedi') + (x.via === 'direct' && ns ? ' (doğrudan)' : x.via === 'drive' && ns ? ' (OneDrive)' : x.via === 'lan' && ns ? ' (yerel ağ)' : '') + (x.user ? ' · ' + esc(x.user) : '') + '</span></div>' +
       st.tag + '</div>' + st.more +
       '<details><summary>Satırları göster' + ico('i-chev') + '</summary><ol>' + items + '</ol></details>' +
       '<div class="acts"><button type="button" class="btn btn-sec" data-a="re" data-i="' + i + '">' + ico('i-send') + 'Yeniden gönder</button>' +
@@ -555,7 +557,7 @@ $('hlist').addEventListener('click', async function (e) {
   var b = e.target.closest('button[data-a]'); if (!b) return;
   var x = S.hist[+b.getAttribute('data-i')]; if (!x) return;
   var act = b.getAttribute('data-a');
-  if (act === 're') { if (driveOn()) driveSend(x, true, b); else startSend(x, true); return; }
+  if (act === 're') { if (lanOn()) lanSend(x, true, b); else if (driveOn()) driveSend(x, true, b); else startSend(x, true); return; }
   if (act === 'flush') { if (x.ch === 'drive') driveFlush(b); else outboxFlush(b); return; }
   if (act === 'dlogin') { driveSignIn(b).then(function (ok) { if (ok) driveFlush(null, true); }); return; }
   if (act === 'login') { mailSignIn(b).then(function (ok) { if (ok) outboxFlush(null); }); return; }
@@ -862,7 +864,10 @@ function renderSendModal(ctx) {
   var tooLong = href.length > MAILTO_MAX;
   var acc = mailAccount(), direct = !!(acc && okTo), loginOpt = !acc && okTo && MAIL.st === 'ready';
   var h = '<p>' + (ctx.hist ? 'Bu sepet yeniden gönderilecek: ' : 'Sepet hazır: ') + fmtQty(ctx.n) + ' satır, şifreli ve imzalı.</p>';
-  h += cloudBtn(ctx);
+  var lanTop = lanOn();
+  if (lanTop) h += '<button type="button" class="btn btn-pri cloudbtn" id="s_lan">' + ico('i-lan') + '<span><b>Yerel ağdan gönder (anında)</b><small>' + esc(LANS.pc ? 'PC: ' + LANS.pc + ' · ' : '') + 'Sonuç hemen burada görünür.</small></span></button>';
+  if (driveOn()) h += '<button type="button" class="btn ' + (lanTop ? 'btn-sec' : 'btn-pri') + ' cloudbtn" id="s_drvsend">' + ico('i-cloudup') + '<span><b>OneDrive\'a gönder</b><small>Tek dokunuş; PC birkaç dakika içinde işler.</small></span></button>';
+  h += lanTop || driveOn() ? cloudBtn(ctx).replace('btn btn-pri cloudbtn', 'btn btn-sec cloudbtn') : cloudBtn(ctx);
   h += '<div class="howto"><button type="button" class="btn btn-ghost" id="s_how">' + ico('i-help') + 'Nasıl gönderilir?</button></div>';
   if (driveOk() && !driveOn() && !ctx.used) h += '<div class="note info" style="margin-top:8px">' + ico('i-cloudlink') + '<div><b>Daha kolayı:</b> OneDrive\'a bir kez bağlanın; sepetler paylaşma menüsü olmadan tek dokunuşla gider.' +
     '<div class="acts row-keep"><button type="button" class="btn btn-sec" id="s_drv">' + ico('i-cloudlink') + 'OneDrive\'a bağlan ve gönder</button></div><div id="s_drvmsg" class="msg" role="status" aria-live="polite"></div></div></div>';
@@ -890,6 +895,8 @@ function renderSendModal(ctx) {
   h += '<div class="acts r" id="s_close"' + (ctx.used ? ' hidden' : '') + '><button type="button" class="btn btn-sec" id="s_cancel">Vazgeç</button></div>';
   openModal(ctx.hist ? 'Sepeti yeniden gönder' : 'Sepeti gönder', h, function () { if (SEND.ctx === ctx) SEND.ctx = null; });
   SEND.ctx = ctx; if (ctx.busy) busy($('s_cloud'), true);
+  var sl = $('s_lan'); if (sl) sl.addEventListener('click', function () { lanSend(ctx.b, ctx.hist, sl, ctx); });
+  var sdv = $('s_drvsend'); if (sdv) sdv.addEventListener('click', function () { closeModal(); driveSend(ctx.b, ctx.hist, null); });
   if (ctx.res) showRes(ctx, ctx.res);
   function used(pv) {
     ctx.used = true; ctx.pv = pv || ''; if (!pv) ctx.dl = '';
@@ -1036,18 +1043,153 @@ function markSent(ctx, via, err, ch, st) {
     x.out = st || 'queued'; x.ch = ch || 'mail'; x.q = now; x.outErr = err || '';
   } else {
     x.sends.push(now); x.via = via || 'mail';
+    if (via === 'lan' && ctx.lanRes) x.lanRes = ctx.lanRes; else delete x.lanRes;
     if (x.out) { if (x.ch === 'drive') { if (via !== 'drive') driveRemove(x.basket); } else outboxRemove(x.basket); delete x.out; delete x.outErr; delete x.ch; }
   }
   pruneHist(); saveHist();
   if (SEND.ctx === ctx) closeModal();
   render(VIEW.cur);
   var go = { t: 'Geçmiş', fn: function () { showView('hist'); } };
+  if (via === 'lan') return;   /* lanDone shows the PC's answer */
   if (via === 'queued' && st === 'login') toast('Sepet giden kutusunda. OneDrive\'a yeniden bağlanın; sonra kendiliğinden gider.', true, { t: 'Bağlan', fn: function () { driveSignIn(null).then(function (ok) { if (ok) driveFlush(null, true); }); } });
   else if (via === 'queued') toast((ch === 'drive' && err ? err + ' ' : '') + 'Sepet giden kutusunda: internet gelince kendiliğinden gider.', false, go);
   else if (via === 'drive') toast(ctx.hist ? 'OneDrive\'a yeniden gönderildi ✓' : 'OneDrive\'a gönderildi ✓ PC birkaç dakika içinde işler.', false, ctx.hist ? null : go);
   else if (via === 'cloud') toast(ctx.hist ? 'Buluta yeniden gönderildi ✓' : 'Buluta gönderildi ✓ PC birkaç dakika içinde işler.', false, ctx.hist ? null : go);
   else if (via === 'direct') toast('Gönderildi ✓ PC birkaç dakika içinde işler.', false, ctx.hist ? null : go);
   else toast(ctx.hist ? 'Yeniden gönderim kaydedildi' : 'Sepet Geçmiş\'e taşındı', false, ctx.hist ? null : go);
+}
+
+/* ===================== V10: direct send over the local network (OmsLan, lansend.js; spec section 20) ===================== */
+/* st: 'off' (no module / pairing / addresses) | 'looking' | 'found' | 'none'. cert = "{root}/saha/" when the browser probably has
+   not accepted the PC's own certificate yet (asked once; a root that ever answered is never asked again). */
+var LANS = { st: 'off', root: '', pc: '', cert: '', certHidden: false, busy: false, p: null, at: 0 };
+function lanOk() { return !!(window.OmsLan && typeof OmsLan.find === 'function' && typeof OmsLan.send === 'function'); }
+function lanOn() { return lanOk() && LANS.st === 'found' && !!LANS.root; }
+function lanSeen() { var o = jget(K.lanOk, {}); return o && typeof o === 'object' ? o : {}; }
+function lanUi() {
+  if (VIEW.cur === 'basket') renderBasket();
+  var c = SEND.ctx, on = lanOn();
+  if (c && !$('modal').hidden && $('s_cloud') && !c.busy && !c.lanBusy && on !== !!$('s_lan')) renderSendModal(c);
+}
+/* background search (Sepet opened, page visible again, back online). force = skip the 60 s cache: the network may have changed */
+function lanProbe(force) {
+  if (!lanOk() || !S.pair || !hasLan() || DEMO === 'selftest') {
+    if (LANS.st !== 'off') { LANS.st = 'off'; LANS.root = ''; LANS.pc = ''; LANS.cert = ''; lanUi(); }
+    return Promise.resolve(null);
+  }
+  if (LANS.p) return LANS.p;
+  if (LANS.st !== 'found') LANS.st = 'looking';
+  LANS.p = Promise.resolve().then(function () { return OmsLan.find({ pairing: S.pair, force: !!force }); }).then(function (r) {
+    r = r || {};
+    LANS.p = null; LANS.at = Date.now();
+    if (r.ok) {
+      LANS.st = 'found'; LANS.root = r.root; LANS.pc = r.pc || ''; LANS.cert = '';
+      var o = lanSeen(); o[String(r.root).toLowerCase()] = Date.now(); LS.set(K.lanOk, JSON.stringify(o));
+    } else {
+      LANS.st = 'none'; LANS.root = ''; LANS.pc = '';
+      var cu = r.needCertUrl || '';
+      if (cu && lanSeen()[cu.replace(/\/saha\/$/, '').toLowerCase()]) cu = '';   /* accepted before: just not on this network now */
+      LANS.cert = cu;
+    }
+    lanUi();
+    return r;
+  }, function () { LANS.p = null; LANS.at = Date.now(); LANS.st = 'none'; LANS.root = ''; lanUi(); return null; });
+  return LANS.p;
+}
+function lanKick() { if (!LANS.p && !LANS.busy && Date.now() - LANS.at > 10000) lanProbe(false); }
+/* the PC reports its current addresses with every answer (DHCP may move it): keep the pairing up to date */
+function lanLearn(i) {
+  if (!S.pair || !i || !Array.isArray(i.lan) || !i.lan.length) return;
+  var old = S.pair.lan || [], m = OmsLan.mergeLan(old, i.lan);
+  if (m.join(' ') === old.join(' ')) return;
+  S.pair.lan = m; savePair();
+  if (VIEW.cur === 'set' && !LANED) renderLan();
+}
+if (lanOk()) { try { OmsLan.onLan(lanLearn); } catch (e) { } }
+function lanSummary(r) {
+  if (!r) return '';
+  if (r.outcome === 'Duplicate') return 'Bu sepet zaten işlenmişti';
+  return 'PC aldı: ' + fmtQty(r.applied || 0) + ' satır stoğa işlendi' + (r.issues ? ' · ' + fmtQty(r.issues) + ' durum' : '') + (r.skipped ? ' · ' + fmtQty(r.skipped) + ' atlandı' : '');
+}
+/* small status line at the top of Sepet: PC found, or the one-time certificate step */
+function renderLanLine() {
+  var el = $('blan'); if (!el) return;
+  var h = '';
+  if (lanOn()) h = '<div class="lanok">' + ico('i-lan') + '<span>Yerel ağda PC bulundu: <b>' + esc(LANS.pc || 'PC') + '</b></span></div>';
+  else if (LANS.cert && !LANS.certHidden && Date.now() - (+LS.get(K.lanCertHide) || 0) > 86400000)
+    h = '<div class="note info">' + ico('i-shield') + '<div><b>PC aynı ağda olabilir.</b> Tarayıcının PC\'ye bir kez bağlanma izni vermesi gerekiyor.' +
+      '<div class="acts row-keep"><a class="btn btn-pri" id="blancert" href="' + esc(LANS.cert) + '" target="_blank" rel="noopener">' + ico('i-shield') + 'PC\'ye bağlanmayı onayla</a>' +
+      '<button type="button" class="btn btn-sec" id="blanlater">Şimdi değil</button></div>' +
+      '<p class="small" style="margin:8px 0 0">Açılan sayfada <b>Gelişmiş</b> → <b>Devam et</b> deyin, sonra bu sayfaya dönün.</p></div></div>';
+  el.innerHTML = h; el.hidden = !h;
+}
+$('blan').addEventListener('click', function (e) {
+  if (e.target.closest('#blancert')) { LANS.certHidden = true; setTimeout(renderLanLine, 300); return; }   /* back on this tab: visibilitychange searches again */
+  if (e.target.closest('#blanlater')) { LS.set(K.lanCertHide, String(Date.now())); renderLanLine(); }
+});
+document.addEventListener('visibilitychange', function () { if (!document.hidden && VIEW.cur === 'basket') lanProbe(true); });
+window.addEventListener('online', function () { if (VIEW.cur === 'basket') lanProbe(true); });
+/* seal exactly like the other paths (sealCtx) -> POST to the PC -> the PC's real answer */
+async function lanSend(b, fromHist, btn, ctx0) {
+  if (LANS.busy) return;
+  if (!S.pair) { toast('Önce cihazı eşleştirin.', true); showView('pair'); return; }
+  var er = envReady(); if (er) { toast(er, true); return; }
+  var root = LANS.root;
+  if (!root) { startSend(b, fromHist); return; }
+  LANS.busy = true; busy(btn, true);
+  var main = btn && btn.id === 'bsend';
+  if (main) $('bsendtx').textContent = 'Gönderiliyor…';
+  var ctx = ctx0 || null, r = null;
+  if (ctx) ctx.lanBusy = true;
+  try {
+    if (!ctx) ctx = await sealCtx(b, fromHist);
+    r = await OmsLan.send({ root: root, armor: ctx.armor });
+  } catch (e) { r = { ok: false, code: ctx ? 'ERROR' : 'SEAL', error: (e && e.message) || String(e) }; }
+  LANS.busy = false; if (ctx) ctx.lanBusy = false; busy(btn, false);
+  r = r || { ok: false, code: 'ERROR' };
+  if (main) renderBasket();
+  if (r.code === 'SEAL') { toast('Sepet hazırlanamadı: ' + r.error, true); return; }
+  lanDone(ctx, r);
+}
+function lanDone(ctx, r) {
+  if (r.ok) {
+    FB.go('ok');
+    ctx.lanRes = { outcome: r.outcome, applied: r.applied || 0, skipped: r.skipped || 0, issues: r.issues || 0, pc: r.pc || LANS.pc || '', at: Date.now() };
+    markSent(ctx, 'lan');
+    var dup = r.outcome === 'Duplicate';
+    var h = '<div class="note ' + (dup ? 'info' : 'ok') + ' lanres" role="status">' + ico(dup ? 'i-info' : 'i-check') + '<div><b>' + esc(lanSummary(ctx.lanRes)) + '</b>' +
+      (dup ? '<br>PC aynı sepeti ikinci kez stoğa eklemedi.' : '') +
+      (!dup && r.issues ? '<br>Durumlu satırları PC\'de Saha sekmesinden çözün.' : '') + '</div></div>' +
+      '<p class="small" style="margin:12px 0 0">' + esc(ctx.lanRes.pc ? 'PC: ' + ctx.lanRes.pc + ' · ' : '') + 'Sepet Geçmiş\'e taşındı' + (ctx.hist ? '.' : '; yeni, boş bir sepet başladı.') + '</p>' +
+      '<div class="acts r"><button type="button" class="btn btn-sec" id="l_hist">' + ico('i-hist') + 'Geçmiş</button><button type="button" class="btn btn-pri" id="l_ok" autofocus>Tamam</button></div>';
+    openModal(dup ? 'Zaten işlenmiş' : 'PC aldı ✓', h, null);
+    $('l_ok').addEventListener('click', function () { closeModal(); });
+    $('l_hist').addEventListener('click', function () { closeModal(); showView('hist'); });
+    return;
+  }
+  FB.go('err');
+  if (r.code === 'OFFLINE' || r.code === 'NEED_CERT') {
+    LANS.st = 'none'; LANS.root = ''; LANS.pc = ''; LANS.at = Date.now();
+    if (r.needCertUrl) { LANS.cert = r.needCertUrl; LANS.certHidden = false; }
+  }
+  var t = r.code === 'REJECTED' ? 'PC sepeti kabul etmedi: ' + (r.error || '') : (r.error || 'Gönderilemedi.');
+  if (!/[.!?]$/.test(t)) t += '.';
+  var h2 = '<div class="note ' + (r.code === 'RETRY' ? 'warn' : 'err') + '" role="alert">' + ico(r.code === 'RETRY' ? 'i-warn' : 'i-err') + '<div>' + esc(t) +
+    '<br>Sepet yerinde duruyor.</div></div>';
+  if (r.code === 'NEED_CERT' && r.needCertUrl) h2 += '<div class="acts"><a class="btn btn-pri" id="f_cert" href="' + esc(r.needCertUrl) + '" target="_blank" rel="noopener">' + ico('i-shield') + 'PC\'ye bağlanmayı onayla</a></div>' +
+    '<p class="small" style="margin:8px 0 0">Açılan sayfada <b>Gelişmiş</b> → <b>Devam et</b> deyin, sonra bu sayfaya dönüp yeniden gönderin.</p>';
+  h2 += '<div class="acts r">';
+  if (r.code === 'RETRY' && lanOn()) h2 += '<button type="button" class="btn btn-sec" id="f_again">' + ico('i-resync') + 'Yeniden dene</button>';
+  if (driveOn()) h2 += '<button type="button" class="btn btn-pri" id="f_drive">' + ico('i-cloudup') + 'OneDrive ile gönder</button>';
+  h2 += '<button type="button" class="btn ' + (driveOn() ? 'btn-sec' : 'btn-pri') + '" id="f_other">' + ico('i-send') + 'Başka yolla gönder</button>';
+  h2 += '<button type="button" class="btn btn-sec" id="f_close">Kapat</button></div>';
+  openModal('Yerel ağdan gönderilemedi', h2, null);
+  var a = $('f_again'); if (a) a.addEventListener('click', function () { closeModal(); lanSend(ctx.b, ctx.hist, null, ctx); });
+  var d = $('f_drive'); if (d) d.addEventListener('click', function () { closeModal(); driveSend(ctx.b, ctx.hist, null); });
+  var c = $('f_cert'); if (c) c.addEventListener('click', function () { LANS.certHidden = true; });
+  $('f_other').addEventListener('click', function () { renderSendModal(ctx); });
+  $('f_close').addEventListener('click', function () { closeModal(); });
+  if (VIEW.cur === 'basket') renderBasket();
 }
 
 /* ===================== barcode decoding ===================== */
@@ -2250,6 +2392,7 @@ function histState(x) {
   if (x.out === 'login') return { tag: '<span class="tag err">' + ico('i-key') + 'Giriş gerekli</span>',
     more: '<p class="small hst">Giden kutusunda bekliyor: Microsoft hesabına yeniden giriş yapınca gider.</p>' +
       '<div class="acts"><button type="button" class="btn btn-pri" data-a="login" data-i="' + S.hist.indexOf(x) + '">' + ico('i-key') + 'Giriş yap</button></div>' };
+  if (x.via === 'lan') return { tag: '<span class="tag ok">' + ico('i-lan') + 'PC aldı</span>', more: x.lanRes ? '<p class="small hst">' + esc(lanSummary(x.lanRes)) + '</p>' : '' };
   if (x.via === 'cloud') return { tag: '<span class="tag ok">' + ico('i-cloudok') + 'Buluta gönderildi</span>', more: '' };
   return { tag: '<span class="tag ok">' + ico('i-check') + 'Gönderildi</span>', more: '' };
 }
@@ -2421,6 +2564,7 @@ async function selfTest() {
   showView('basket'); editLine(S.basket.lines[2].id); if (overflow()) bad.push('edit'); closeModal();
   editLine(S.basket.lines[0].id, { after: true }); if (overflow()) bad.push('edit-after'); closeModal();
   if (smode() !== 'manual' && !serOk()) fails.push('smode');
+  if (!lanOk() || lanSummary({ outcome: 'Applied', applied: 12, issues: 1 }) !== 'PC aldı: 12 satır stoğa işlendi · 1 durum') fails.push('lan');
   renderSendModal(demoCtx(true));
   if (overflow()) bad.push('send'); closeModal();
   renderSendModal(demoCtx(false, true)); if (overflow()) bad.push('send-more'); closeModal();
@@ -2457,7 +2601,7 @@ async function demo(v) {
 }
 
 /* debugging / test hook */
-window.OMSSAHA = { S: S, SER: SER, DRV: DRV, driveSend: driveSend, driveSync: driveSync, catRefresh: catRefresh, editLine: editLine, addLine: addLine, showView: showView, doPair: doPair, DEC: DEC, CAM: CAM, MAIL: MAIL, CATR: CATR, startSend: startSend,
+window.OMSSAHA = { S: S, LANS: LANS, lanProbe: lanProbe, lanSend: lanSend, SER: SER, DRV: DRV, driveSend: driveSend, driveSync: driveSync, catRefresh: catRefresh, editLine: editLine, addLine: addLine, showView: showView, doPair: doPair, DEC: DEC, CAM: CAM, MAIL: MAIL, CATR: CATR, startSend: startSend,
   renderSendModal: renderSendModal, openGuide: openGuide, guideSteps: guideSteps, cloudPrimary: cloudPrimary, SEND: SEND, mailSetup: mailSetup, catInit: catInit, render: render, version: function () { return APP.ver; } };
 
 if (DEMO === 'selftest') selfTest(); else if (DEMO) demo(DEMO); else boot();
