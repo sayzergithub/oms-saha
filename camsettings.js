@@ -396,6 +396,8 @@
           return apply(track);
         }
       }).then(function () {
+        return track ? fpsGuard(track).then(noop, noop) : null;
+      }).then(function () {
         return { stream: stream, track: track, caps: getCaps(track), settings: getSet(track) };
       });
     });
@@ -460,8 +462,24 @@
       return run(other).then(function () { s.mode = other; }, function () { throw e; });
     }).then(function () {
       for (var k in set) if (has(set, k) && k !== 'pointsOfInterest') s.acc[k] = set[k];
-      return true;
+      return fpsGuard(track).then(function () { return true; }, function () { return true; });
     });
+  }
+
+  /** Re-asserts the chosen resolution + frame rate when the track runs clearly below the chosen fps. Promise<boolean> (true = re-applied).
+   *  Image settings (focus, zoom, exposure) are camera state in Chromium/WebKit and survive a format-only applyConstraints. */
+  function fpsGuard(track) {
+    if (!live(track)) return Promise.resolve(false);
+    var s = tsOf(track); if (s.guarding) return Promise.resolve(false);
+    var pr = prefs(track), set = getSet(track);
+    // Chromium/Android reports 0 when the camera lacks MANUAL_SENSOR (VideoCaptureCamera2): unknown, not slow → leave it alone
+    if (!pr.fps || !isNum(set.frameRate) || set.frameRate <= 0 || set.frameRate >= pr.fps * 0.8) return Promise.resolve(false);
+    var res = parseRes(pr.res) || AUTO_RES;
+    var c = { width: { ideal: res.w }, height: { ideal: res.h }, frameRate: { ideal: pr.fps, min: Math.max(1, Math.floor(pr.fps * 0.8)) } };
+    s.guarding = true;
+    return Promise.resolve().then(function () { return track.applyConstraints(c); })
+      .catch(function () { return track.applyConstraints({ width: c.width, height: c.height, frameRate: { ideal: pr.fps } }); })
+      .then(function () { s.guarding = false; return true; }, function () { s.guarding = false; return false; });
   }
 
   // Apply a group; on failure fall back to its pieces (mode first) so one unsupported value does not drop the rest.
@@ -701,6 +719,7 @@
     '.omscam-status.omscam-o{color:var(--oc-text)}',
     '.omscam-status.omscam-w{color:var(--oc-text);border-left:4px solid #ab6400;padding:8px 12px;background:rgba(255,197,61,.16);border-radius:var(--oc-r)}',
     '.omscam-save{margin-top:16px;padding:12px;border:1px solid var(--oc-line);border-radius:var(--oc-r);background:var(--oc-accentsoft)}',
+    '.omscam-save.omscam-savetop{margin:0 0 16px}',
     '.omscam-sum{font-size:14px;line-height:20px;color:var(--oc-text2);margin-bottom:8px;overflow-wrap:anywhere}',
     '.omscam-save .omscam-btn{width:100%;min-height:48px}',
     '.omscam-reset.omscam-arm{background:var(--oc-errsoft);border-color:var(--oc-err);color:var(--oc-text);font-weight:600}',
@@ -873,6 +892,9 @@
       fpsPresets(caps).forEach(function (f) { var o = d.createElement('option'); o.value = String(f); o.textContent = f + ' kare/s'; fs.appendChild(o); });
       fs.value = String(r.fps || 0); if (fs.value !== String(r.fps || 0)) fs.value = '0';
       fs.addEventListener('change', function () { setPref(key, { fps: +fs.value || null }); restart('Kare hızı değiştiriliyor…'); });
+      // Android picks an auto-exposure fps RANGE closest to the target (VideoCaptureCamera2.getClosestFramerateRange); in dim light the
+      // camera lengthens exposure and runs slower than chosen, so the HUD then reads e.g. '30 fps · kamera 60'.
+      if (r.fps >= 50) note(s2, 'Işık azsa kamera pozlamayı uzatıp kare hızını kendiliğinden düşürebilir (ör. 30). Taramada sol üstte "30 fps · kamera 60" görürseniz Işık düğmesini açın ya da Pozlama bölümünde pozlamayı elle kısa süreye alın.');
       note(s2, 'Yüksek çözünürlük küçük kodları okumayı kolaylaştırır ama telefonu yavaşlatabilir ve pili daha çok kullanır. Telefon istenen değeri vermezse en yakını seçilir; gerçek değer aşağıda görünür.');
       if (track) {
         var cw = caps.width && caps.width.max, chh = caps.height && caps.height.max;
@@ -1010,9 +1032,9 @@
       var want = parseRes(pr.res);
       if (t) {
         if (isNum(s.width) && isNum(s.height)) parts.push(s.width + '×' + s.height + ' (' + fmtMP(s.width, s.height) + ')');
-        if (isNum(s.frameRate)) parts.push(fmtNum(s.frameRate, 0) + ' kare/s');
+        if (isNum(s.frameRate) && s.frameRate > 0) parts.push(fmtNum(s.frameRate, 0) + ' kare/s');
         if (want && isNum(s.width) && Math.max(s.width, s.height) * Math.min(s.width, s.height) < want.w * want.h * 0.9) ok = false;
-        if (pr.fps && isNum(s.frameRate) && s.frameRate < pr.fps * 0.8) ok = false;
+        if (pr.fps && isNum(s.frameRate) && s.frameRate > 0 && s.frameRate < pr.fps * 0.8) ok = false;
       }
       var text = 'Kaydedildi. Tarama bu kamerayla açılır' + (parts.length ? ': ' + parts.join(' · ') : '') + '.';
       if (!ok) text = 'Kaydedildi, ama kamera istenen değeri vermiyor' + (parts.length ? ' (şu an ' + parts.join(' · ') + ')' : '') +
@@ -1021,7 +1043,7 @@
     }
     /** top = first thing in the panel (seen without scrolling), else after the status line at the end */
     function saveBar(top) {
-      var bar = el('div', 'omscam-save' + (top ? ' top' : ''));
+      var bar = el('div', 'omscam-save' + (top ? ' omscam-savetop' : ''));   // not '.top': the field page header owns that class
       var sum = el('div', 'omscam-sum'); bar.appendChild(sum);
       var pr = prefs(getTrack() || undefined), t = getTrack();
       var camTxt = st.sel ? (st.sel.label || 'seçili kamera') : 'Otomatik (arka kamera)';
@@ -1186,6 +1208,7 @@
     if (nm) l1 += ' · ' + nm;
     var l2 = i.w > 0 && i.h > 0 ? i.w + '×' + i.h + ' ' + fmtMP(i.w, i.h) : '—×— MP';
     var l3 = isNum(i.fps) && i.fps > 0 ? (i.approx ? '~' : '') + (i.fps < 10 ? fmtNum(i.fps, 1) : String(Math.round(i.fps))) + ' fps' : '-- fps';
+    if (!i.approx && isNum(i.camFps) && i.camFps > 0 && isNum(i.fps) && Math.abs(i.camFps - i.fps) > Math.max(3, i.camFps * 0.15)) l3 += ' · kamera ' + Math.round(i.camFps);
     return [l1, l2, l3];
   }
 
@@ -1235,7 +1258,7 @@
       for (var i = 0; i < n; i++) if (S.list[i].deviceId === devId) idx = i + 1;
       var vw = videoEl.videoWidth || s.width || 0, vh = videoEl.videoHeight || s.height || 0;
       var fps = S.rvfc ? S.fps : (isNum(s.frameRate) ? s.frameRate : null);
-      var txt = hudLines({ label: t.label, facing: s.facingMode || facingOf(t.label), idx: idx, n: n, w: vw, h: vh, fps: fps, approx: !S.rvfc });
+      var txt = hudLines({ label: t.label, facing: s.facingMode || facingOf(t.label), idx: idx, n: n, w: vw, h: vh, fps: fps, approx: !S.rvfc, camFps: s.frameRate });
       for (var j = 0; j < 3; j++) if (lines[j].textContent !== txt[j]) lines[j].textContent = txt[j];
       el.title = (t.label || '') + ' · ' + txt[1] + ' · ' + txt[2];
       el.hidden = false;
@@ -1316,6 +1339,7 @@
     fmtMP: fmtMP,
     hud: hud,
     canPhoto: canPhoto,
+    fpsGuard: fpsGuard,
     photoCaps: photoCaps,
     takePhoto: takePhoto,
     hudLines: hudLines,

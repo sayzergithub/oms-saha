@@ -361,7 +361,9 @@ body.scanning #pairidle{display:none}
 .li.same{box-shadow:inset 4px 0 0 var(--warn)}
 .stockbox{margin-top:var(--s3)}
 /* ==== camera settings view (V6) ==== */
-.stage.cfg{margin:0 0 var(--s4);border-radius:var(--r-lg);height:min(52vh,420px)}
+.stage.cfg{margin:0;border-radius:var(--r-lg);height:min(34vh,300px);height:min(34dvh,300px)}
+#camstage{position:sticky;top:calc(var(--h-top) + var(--safe-t));z-index:5;background:var(--bg);padding-bottom:var(--s3);margin-bottom:var(--s2)}
+#camstage:empty{display:none}
 .stage.cfg .aim,.stage.cfg #bstagebasket,.stage.cfg #bmanual,.stage.cfg #chelp,.stage.cfg #cpause,.stage.cfg #bcamset,.stage.cfg #zseg,.stage.cfg #btorch{display:none!important}
 .stage.cfg .spill{bottom:var(--s4)}
 .stage .fring{position:absolute;width:72px;height:72px;margin:-36px 0 0 -36px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.55),inset 0 0 0 1px rgba(0,0,0,.55);
