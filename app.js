@@ -1394,6 +1394,7 @@ var CAM = {
     $('stage').classList.toggle('mirror', st.facingMode === 'user');
     this.torch = false; var bt = $('btorch'); bt.hidden = !c.torch; bt.setAttribute('aria-pressed', 'false'); bt.classList.remove('nudge'); bt.querySelector('use').setAttribute('href', '#i-torch');
     buildZoom(c, st.zoom || (c.zoom && c.zoom.min) || 1);
+    $('bsnap').querySelector('span').textContent = this.hdOk() ? 'HD fotoğraf' : 'Fotoğraf çek';   /* V12b */
   },
   devices: function () {
     if (!navigator.mediaDevices.enumerateDevices) return; var self = this;
@@ -1447,6 +1448,30 @@ var CAM = {
     if (wasRunning) { this.running = true; this.paused = false; this.armIdle(); this.schedule(300); }
   },
   resume: function () { this.paused = false; this.running = true; $('cpause').hidden = true; this.armIdle(); this.lock(true); this.schedule(100); },
+  /* V12b: the live stream cannot exceed the camera driver's video sizes (often 1920x1080 even on 12 / 50 MP phones); a still from
+     ImageCapture.takePhoto has the full photo size (camsettings.js explains, with sources). Decoded like a photo, committed like a hit. */
+  hdOk: function () { return this.mode !== 'cfg' && hasCam() && !!OmsCam.canPhoto && OmsCam.canPhoto(this.track); },
+  hd: async function () {
+    var t = this.track, m = this.mode; if (!t || this.hdBusy) return;
+    this.hdBusy = true; this.running = false; clearTimeout(this.timer); $('chelp').hidden = true;
+    var b = $('bsnap'); busy(b, true);
+    this.state('HD fotoğraf çekiliyor… telefonu sabit tutun');
+    try {
+      var blob = await OmsCam.takePhoto(t);
+      if (!this.stream) return;
+      var dims = ''; try { var bm = await createImageBitmap(blob); dims = ' (' + bm.width + '×' + bm.height + ')'; if (bm.close) bm.close(); } catch (e) { }
+      this.state('Çözülüyor' + dims + '…');
+      var hits = (await decodePhoto(blob, m, true)).filter(function (h) { return h && h.text; });
+      if (!this.stream) return;
+      this.running = true; this.paused = false; this.armIdle();
+      if (!hits.length) { FB.go('err'); this.state('HD fotoğrafta' + dims + ' kod bulunamadı. Yaklaşıp tekrar deneyin.', 'warn'); this.schedule(1500); return; }
+      if (m === 'pair' || this.serial) { this.onHits(hits); return; }
+      this.commit(pickPrimary(hits), Date.now());
+    } catch (e) {
+      if (this.stream) { this.running = true; this.paused = false; this.armIdle(); this.schedule(800); }
+      this.state('HD fotoğraf çekilemedi: ' + ((e && e.message) || e), 'warn');
+    } finally { this.hdBusy = false; busy(b, false); }
+  },
   schedule: function (ms) { clearTimeout(this.timer); var self = this; this.timer = setTimeout(function () { self.tick(); }, ms); },
   /* hints at 6 s / 12 s, pause after 60 s idle (battery, heat) */
   armIdle: function () { this.idle.t0 = Date.now(); this.idle.hint = 0; $('chelp').hidden = true; $('btorch').classList.remove('nudge'); },
@@ -1454,7 +1479,7 @@ var CAM = {
     var d = Date.now() - this.idle.t0;
     if (d > 60000) { this.running = false; clearTimeout(this.timer); $('chelp').hidden = true; $('cpause').hidden = false; this.lock(false); this.state('Tarama duraklatıldı'); return true; }
     if (d > 12000 && this.idle.hint < 2) { this.idle.hint = 2; this.state(this.serial ? 'Sıradaki makarayı çerçeveye alın' : 'Okunamıyor mu?', this.serial ? '' : 'warn'); $('chelp').hidden = !!this.serial; }
-    else if (d > 6000 && this.idle.hint < 1) { this.idle.hint = 1; this.state('Yaklaştırın, etiketi düz tutun'); if (!$('btorch').hidden) $('btorch').classList.add('nudge'); }
+    else if (d > 6000 && this.idle.hint < 1) { this.idle.hint = 1; this.state('Yaklaştırın, etiketi düz tutun'); if (!$('btorch').hidden) $('btorch').classList.add('nudge'); if (!this.serial && this.hdOk()) $('chelp').hidden = false; }
     return false;
   },
   /* keep the screen on while scanning (secure context; Chrome, Safari 16.4+) */
@@ -1675,7 +1700,10 @@ $('bstagebasket').addEventListener('click', function () { showView('basket'); })
 function camToManual() { var m = CAM.mode; CAM.stop(); setTimeout(function () { var el = $(m === 'pair' ? 'pcode' : 'code'); el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) { } }, 60); }
 $('bmanual').addEventListener('click', camToManual);
 $('bman3').addEventListener('click', camToManual);
-$('bsnap').addEventListener('click', function () { var m = CAM.mode; CAM.stop(); PH.mode = m; $('ph').click(); });
+$('bsnap').addEventListener('click', function () {
+  if (CAM.hdOk()) { CAM.hd(); return; }   /* V12b: full-resolution still in the page */
+  var m = CAM.mode; CAM.stop(); PH.mode = m; $('ph').click();
+});
 $('bresume').addEventListener('click', function () { CAM.resume(); CAM.state('Etiketi çerçeveye alın'); });
 $('btorch').addEventListener('click', function () {
   var t = CAM.track; if (!t) return; var on = !CAM.torch, self = this; self.classList.remove('nudge');
@@ -1703,13 +1731,13 @@ function loadImage(file) {
   return imgFallback(file);
 }
 function imgFallback(file) { return new Promise(function (res, rej) { var u = URL.createObjectURL(file), im = new Image(); im.onload = function () { URL.revokeObjectURL(u); res(im); }; im.onerror = function () { URL.revokeObjectURL(u); rej(new Error('görsel okunamadı')); }; im.src = u; }); }
-async function decodePhoto(file, mode) {
+async function decodePhoto(file, mode, big) {
   await DEC.init();
   var bmp = await loadImage(file), W = bmp.width || bmp.naturalWidth, Hh = bmp.height || bmp.naturalHeight, hits = [];
   try {
     if (DEC.kind === 'native' && DEC.det) { try { hits = await DEC.detect(bmp); } catch (e) { hits = []; } if (hits.length) return hits; await DEC.initP; }
     if (DEC.kind !== 'worker' && DEC.kind !== 'main') await DEC.zx();
-    var sets = mode === 'pair' ? ['qr'] : ['d2', 'all'], edges = [1200, 2000], prev = 0;
+    var sets = mode === 'pair' ? ['qr'] : ['d2', 'all'], edges = big ? [1600, 2600, 4000] : [1200, 2000, 3200], prev = 0;   /* V12b: big stills get a full-size pass */
     for (var k = 0; k < edges.length; k++) {
       var s = Math.min(1, edges[k] / Math.max(W, Hh)), w = Math.max(1, W * s | 0), h = Math.max(1, Hh * s | 0);
       if (w === prev) break; prev = w;
@@ -1755,7 +1783,8 @@ function renderCamPanel() {
   if (VIEW.cur !== 'cam') return;
   try {
     if (PANEL && PANEL.root && box.contains(PANEL.root)) { PANEL.refresh(); return; }
-    PANEL = OmsCam.renderPanel(box, { getTrack: function () { return CAM.track; }, onRestart: function () { return CAM.restart(); } });
+    PANEL = OmsCam.renderPanel(box, { getTrack: function () { return CAM.track; }, onRestart: function () { return CAM.restart(); },
+      onDone: function () { showView('scan'); CAM.start('scan'); } });   /* V12b: 'Kaydet ve taramaya dön' */
   } catch (e) { PANEL = null; box.innerHTML = '<div class="note err">' + ico('i-err') + '<div>Kamera ayar paneli açılamadı: ' + esc((e && e.message) || e) + '</div></div>'; }
 }
 function dropCamPanel() { if (PANEL) { try { PANEL.destroy(); } catch (e) { } PANEL = null; } $('campanel').innerHTML = ''; }

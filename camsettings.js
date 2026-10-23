@@ -138,9 +138,16 @@
     return prefs();
   }
 
-  /** Select a camera for the next open(); '' / null = automatic (best back camera). */
+  /** Select a camera for the next open(); '' / null = automatic (best back camera). The previous camera's resolution and frame
+   *  rate are carried over when the new one has none saved (the user picked "60 fps", then another camera: still 60 fps). */
   function select(deviceId, label) {
     ensure();
+    var from = rec(curKey()), toKey = deviceId ? String(deviceId) : keyOfId(autoPick && autoPick.id);
+    if (toKey !== curKey()) {
+      var to = rec(toKey, true);
+      if (from.res && !to.res) to.res = from.res;
+      if (from.fps && !to.fps) to.fps = from.fps;
+    }
     if (!deviceId) st.sel = null;
     else {
       var lab = label;
@@ -279,7 +286,7 @@
     var r = rec(curKey());
     var res = opt.res !== undefined ? opt.res : (parseRes(r.res) || AUTO_RES);
     if (res) { v.width = { ideal: res.w }; v.height = { ideal: res.h }; }
-    if (r.fps && !opt.noFps) v.frameRate = { ideal: r.fps };
+    if (r.fps && !opt.noFps) v.frameRate = opt.fpsSoft ? { ideal: r.fps } : { ideal: r.fps, min: Math.max(1, Math.floor(r.fps * 0.8)) };
     if (ptzWanted() && !opt.noZoom) v.zoom = true;
     var out = { audio: false, video: v };
     if (extra && typeof extra === 'object') {
@@ -355,11 +362,13 @@
         }
         if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError' || name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') {
           if (cons && cons !== 'width' && cons !== 'height' && cons !== 'deviceId' && v[cons] !== undefined && !(extra && extra.video && has(extra.video, cons))) {
-            if (cons === 'zoom') opt.noZoom = true; else if (cons === 'frameRate') opt.noFps = true;
+            if (cons === 'zoom') opt.noZoom = true;
+            else if (cons === 'frameRate') { if (!opt.fpsSoft) opt.fpsSoft = true; else opt.noFps = true; }   // firm → preferred → none
             else return Promise.reject(e);
             return attempt();
           }
           if (opt.res) { opt.res = lowerRes(opt.res); if (!opt.res) { opt.noFps = true; opt.noZoom = true; } return attempt(); }
+          if (!opt.fpsSoft) { opt.fpsSoft = true; return attempt(); }
           if (!opt.noFps || !opt.noZoom) { opt.noFps = true; opt.noZoom = true; return attempt(); }
         }
         throw firstErr || e;
@@ -690,6 +699,10 @@
     '.omscam-status{min-height:20px;margin-top:8px;font-size:var(--fs-sm,14px);line-height:20px;color:var(--oc-text2)}',
     '.omscam-status.omscam-e{color:var(--oc-text);background:var(--oc-errsoft);border-left:4px solid var(--oc-err);padding:8px 12px;border-radius:var(--oc-r)}',
     '.omscam-status.omscam-o{color:var(--oc-text)}',
+    '.omscam-status.omscam-w{color:var(--oc-text);border-left:4px solid #ab6400;padding:8px 12px;background:rgba(255,197,61,.16);border-radius:var(--oc-r)}',
+    '.omscam-save{margin-top:16px;padding:12px;border:1px solid var(--oc-line);border-radius:var(--oc-r);background:var(--oc-accentsoft)}',
+    '.omscam-sum{font-size:14px;line-height:20px;color:var(--oc-text2);margin-bottom:8px;overflow-wrap:anywhere}',
+    '.omscam-save .omscam-btn{width:100%;min-height:48px}',
     '.omscam-reset.omscam-arm{background:var(--oc-errsoft);border-color:var(--oc-err);color:var(--oc-text);font-weight:600}',
     '@media (hover:hover){.omscam-btn:not(:disabled):hover{background:var(--oc-hover)}.omscam-pri:not(:disabled):hover{background:var(--accent-hover,var(--oc-accent))}.omscam-seg label:hover input:not(:checked)+span{background:var(--oc-hover)}}',
     '.omscam-btn:focus-visible,.omscam select:focus-visible,.omscam input[type=range]:focus-visible,.omscam-sw input:focus-visible{outline:3px solid var(--oc-focus);outline-offset:2px}',
@@ -747,7 +760,7 @@
     function getTrack() { var t = null; try { t = opts.getTrack ? opts.getTrack() : cur.track; } catch (e) { t = null; } return live(t) ? t : null; }
     function status(text, kind) {
       if (!statusEl) return;
-      statusEl.className = 'omscam-status' + (kind === 'err' ? ' omscam-e' : kind === 'ok' ? ' omscam-o' : '');
+      statusEl.className = 'omscam-status' + (kind === 'err' ? ' omscam-e' : kind === 'warn' ? ' omscam-w' : kind === 'ok' ? ' omscam-o' : '');
       statusEl.setAttribute('role', kind === 'err' ? 'alert' : 'status');
       statusEl.textContent = (kind === 'err' ? 'Hata: ' : '') + (text || '');
     }
@@ -759,7 +772,9 @@
       if (!opts.onRestart) { status('Ayar kaydedildi; kamera yeniden açılınca geçerli olur.', 'ok'); return Promise.resolve(); }
       busy = true; status(msg || 'Kamera yeniden açılıyor…');
       return Promise.resolve().then(function () { return opts.onRestart(); }).then(function () {
-        busy = false; cams = null; build(); status('Kamera yeniden açıldı.', 'ok');
+        busy = false; cams = null; build();
+        var chk = deliveredCheck(getTrack());
+        status(chk.text, chk.ok ? 'ok' : 'warn');
       }, function (e) { busy = false; build(); status(errorText(e), 'err'); });
     }
 
@@ -836,15 +851,11 @@
       var s1 = section('Kamera');
       var lab = el('label', 'omscam-lab'); lab.setAttribute('for', id + '-cam'); lab.appendChild(el('span', null, 'Kullanılacak kamera')); s1.appendChild(lab);
       var sel = d.createElement('select'); sel.id = id + '-cam'; s1.appendChild(sel);
+      sel.addEventListener('change', function () { select(sel.value || null); restart('Kamera değiştiriliyor…'); });
       var row = el('div', 'omscam-row'); s1.appendChild(row);
-      var bChange = btn(row, 'Değiştir', 'omscam-pri', function () {
-        var v = sel.value;
-        select(v || null);
-        restart('Kamera değiştiriliyor…');
-      });
-      btn(row, 'Listeyi yenile', null, function () { cams = null; fillCams(sel, bChange, camNote); });
+      btn(row, 'Listeyi yenile', null, function () { cams = null; fillCams(sel, null, camNote); });
       var camNote = note(s1, '');
-      fillCams(sel, bChange, camNote);
+      fillCams(sel, null, camNote);
 
       // 2. resolution + fps
       var s2 = section('Çözünürlük ve kare hızı');
@@ -863,6 +874,19 @@
       fs.value = String(r.fps || 0); if (fs.value !== String(r.fps || 0)) fs.value = '0';
       fs.addEventListener('change', function () { setPref(key, { fps: +fs.value || null }); restart('Kare hızı değiştiriliyor…'); });
       note(s2, 'Yüksek çözünürlük küçük kodları okumayı kolaylaştırır ama telefonu yavaşlatabilir ve pili daha çok kullanır. Telefon istenen değeri vermezse en yakını seçilir; gerçek değer aşağıda görünür.');
+      if (track) {
+        var cw = caps.width && caps.width.max, chh = caps.height && caps.height.max;
+        var lim = note(s2, (isNum(cw) && isNum(chh) ? 'Canlı görüntü bu kamerada en fazla ' + resLabel(Math.max(cw, chh), Math.min(cw, chh)) + '. ' : '') +
+          'Bu sınırı telefonun kamera yazılımı belirler: tarayıcıya yalnız video için ayrılmış boyutları verir. Kameranın 12 veya 50 MP olması canlı görüntüye yansımaz.');
+        photoCaps(track).then(function (mx) {
+          if (dead || !lim.parentNode) return;
+          var vmp = isNum(cw) && isNum(chh) ? mp(cw, chh) : 0;
+          if (mx && mp(mx.w, mx.h) <= vmp * 1.1) lim.textContent += ' Bu kamerada fotoğraf da aynı boyutta (' + fmtMP(mx.w, mx.h) + ').';
+          else if (mx) lim.textContent += ' Fotoğraf ise ' + resLabel(Math.max(mx.w, mx.h), Math.min(mx.w, mx.h)) + ' çekilebilir: taramada "HD fotoğraf" düğmesi bu çözünürlükte çekip okur.' +
+            (mp(mx.w, mx.h) < 30 ? ' 50 MP kameralar çoğu telefonda pikselleri birleştirerek bu boyutta fotoğraf verir; tam 50 MP modu tarayıcıya açık değildir.' : '');
+          else lim.textContent += ' Bu tarayıcı tam çözünürlüklü fotoğrafı sayfa içinden çekemiyor; "Fotoğraf çek" telefonun kamera uygulamasını açar.';
+        });
+      }
 
       if (!track) {
         var sx = section('Odak, pozlama ve ışık');
@@ -977,6 +1001,40 @@
       statusEl = el('div', 'omscam-status'); statusEl.setAttribute('role', 'status'); statusEl.setAttribute('aria-live', 'polite');
       root.appendChild(statusEl);
       if (prevStatus) { statusEl.className = prevStatus[0]; statusEl.textContent = prevStatus[1]; statusEl.setAttribute('role', prevStatus[2] || 'status'); }
+      saveBar(false); saveBar(true);
+    }
+
+    /** Saved preference vs what the open track really delivers (the phone may refuse 60 fps or a size). */
+    function deliveredCheck(t) {
+      var pr = prefs(t || undefined), s = t ? getSet(t) : {}, parts = [], ok = true;
+      var want = parseRes(pr.res);
+      if (t) {
+        if (isNum(s.width) && isNum(s.height)) parts.push(s.width + '×' + s.height + ' (' + fmtMP(s.width, s.height) + ')');
+        if (isNum(s.frameRate)) parts.push(fmtNum(s.frameRate, 0) + ' kare/s');
+        if (want && isNum(s.width) && Math.max(s.width, s.height) * Math.min(s.width, s.height) < want.w * want.h * 0.9) ok = false;
+        if (pr.fps && isNum(s.frameRate) && s.frameRate < pr.fps * 0.8) ok = false;
+      }
+      var text = 'Kaydedildi. Tarama bu kamerayla açılır' + (parts.length ? ': ' + parts.join(' · ') : '') + '.';
+      if (!ok) text = 'Kaydedildi, ama kamera istenen değeri vermiyor' + (parts.length ? ' (şu an ' + parts.join(' · ') + ')' : '') +
+        '. Telefon bu kamerada bu çözünürlük/kare hızı birleşimini desteklemiyor; daha düşük bir çözünürlük seçin.';
+      return { ok: ok, text: text };
+    }
+    /** top = first thing in the panel (seen without scrolling), else after the status line at the end */
+    function saveBar(top) {
+      var bar = el('div', 'omscam-save' + (top ? ' top' : ''));
+      var sum = el('div', 'omscam-sum'); bar.appendChild(sum);
+      var pr = prefs(getTrack() || undefined), t = getTrack();
+      var camTxt = st.sel ? (st.sel.label || 'seçili kamera') : 'Otomatik (arka kamera)';
+      var resTxt = pr.res && pr.res !== 'auto' ? (function (x) { return x ? resLabel(x.w, x.h) : pr.res; })(parseRes(pr.res)) : 'Otomatik';
+      sum.textContent = 'Taramada: ' + camTxt + ' · ' + resTxt + ' · ' + (pr.fps ? pr.fps + ' kare/s' : 'kare hızı otomatik');
+      var b = btn(bar, opts.onDone ? 'Kaydet ve taramaya dön' : 'Kaydet', 'omscam-pri', function () {
+        var okSave = save();
+        var chk = deliveredCheck(t);
+        status(okSave === false ? 'Kaydedilemedi: tarayıcı bu sitede kayıt tutmaya izin vermiyor (gizli sekme?).' : chk.text, okSave === false ? 'err' : chk.ok ? 'ok' : 'warn');
+        if (okSave !== false && opts.onDone) { try { opts.onDone(); } catch (e) { } }
+      });
+      if (!top) b.id = id + '-save';
+      if (top) root.insertBefore(bar, root.firstChild); else root.appendChild(bar);
     }
 
     function restoreFocus(fid) { if (!fid) return; var e = d.getElementById(fid); if (e && e.focus) try { e.focus({ preventScroll: true }); } catch (x) { try { e.focus(); } catch (y) { } } }
@@ -1049,6 +1107,51 @@
     build();
     timer = setInterval(tick, 1500);
     return { refresh: function () { cams = null; build(); }, destroy: destroy, root: root };
+  }
+
+  // ---------------------------------------------------------------- V12b: full-resolution still (ImageCapture)
+  // Why the live picture stops at e.g. 1920x1080 on a 12 / 50 MP phone (researched 2026-10-23, primary sources):
+  //  - Chrome on Android lists only the camera driver's YUV video output sizes (VideoCaptureCamera2.getDeviceSupportedFormats,
+  //    video_capture_device_factory_android.cc) and Blink caps every candidate at that native size
+  //    (media_stream_constraints_util_video_device.cc): getCapabilities().width.max IS the ceiling, a bigger "ideal" cannot exceed it.
+  //    Android leaves slow full-sensor sizes out of getOutputSizes() (StreamConfigurationMap: getHighResolutionOutputSizes /
+  //    maximum-resolution map), so a 50 MP sensor never shows up as a video size.
+  //  - Stills take a separate JPEG path: ImageCapture.getPhotoCapabilities() / takePhoto({imageWidth, imageHeight}) gives the
+  //    largest JPEG size (typically the 12 MP class). Chrome closes the preview session for the shot (one short freeze).
+  //    Support: Chrome / Samsung Internet 59+, Safari 18.4+ (MDN browser-compat-data api/ImageCapture.json); Firefox: flag only.
+  //    One report of takePhoto hanging on Safari → every call has a timeout.
+  var photoMemo = (typeof WeakMap === 'function') ? new WeakMap() : null;
+  function imageCaptureFor(track) { var w = env.win(); return (w && typeof w.ImageCapture === 'function' && live(track)) ? new w.ImageCapture(track) : null; }
+  function canPhoto(track) { var w = env.win(); return !!(w && typeof w.ImageCapture === 'function' && live(track) && typeof w.ImageCapture.prototype.takePhoto === 'function'); }
+  function withTimeout(p, ms, what) {
+    return new Promise(function (res, rej) {
+      var t = env.setTimeout(function () { rej(mkErr('TimeoutError', what + ' zaman aşımı')); }, ms);
+      Promise.resolve(p).then(function (v) { env.clearTimeout(t); res(v); }, function (e) { env.clearTimeout(t); rej(e); });
+    });
+  }
+  /** Largest still size of the camera behind `track`: Promise<{w,h}|null> (null = not supported / unknown). */
+  function photoCaps(track) {
+    if (!canPhoto(track)) return Promise.resolve(null);
+    if (photoMemo && photoMemo.has(track)) return photoMemo.get(track);
+    var p = Promise.resolve().then(function () {
+      var ic = imageCaptureFor(track);
+      if (!ic || typeof ic.getPhotoCapabilities !== 'function') return null;
+      return withTimeout(ic.getPhotoCapabilities(), 4000, 'getPhotoCapabilities').then(function (pc) {
+        var w = pc && pc.imageWidth && pc.imageWidth.max, h = pc && pc.imageHeight && pc.imageHeight.max;
+        return isNum(w) && isNum(h) && w > 0 && h > 0 ? { w: w, h: h } : null;
+      });
+    }).catch(function () { return null; });
+    if (photoMemo) photoMemo.set(track, p);
+    return p;
+  }
+  /** Full-resolution JPEG from the running camera: Promise<Blob>. Largest size when known; plain takePhoto() as fallback. */
+  function takePhoto(track) {
+    if (!canPhoto(track)) return Promise.reject(mkErr('NotSupportedError', 'Bu tarayıcı tam çözünürlüklü fotoğraf çekemiyor'));
+    return photoCaps(track).then(function (mx) {
+      var ic = imageCaptureFor(track);
+      var shot = function (o) { return withTimeout(o ? ic.takePhoto(o) : ic.takePhoto(), 10000, 'takePhoto'); };
+      return (mx ? shot({ imageWidth: mx.w, imageHeight: mx.h }).catch(function (e) { if (e && e.name === 'TimeoutError') throw e; return shot(null); }) : shot(null));
+    });
   }
 
   // ---------------------------------------------------------------- public API
@@ -1212,6 +1315,9 @@
     resLabel: resLabel,
     fmtMP: fmtMP,
     hud: hud,
+    canPhoto: canPhoto,
+    photoCaps: photoCaps,
+    takePhoto: takePhoto,
     hudLines: hudLines,
     // test hooks
     _env: env,
