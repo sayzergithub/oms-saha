@@ -156,6 +156,12 @@
     var ua = String(n.userAgent || '');
     return /iPad|iPhone|iPod/.test(ua) || (n.platform === 'MacIntel' && n.maxTouchPoints > 1);
   }
+  // Field report 2026-10-23: in the installed (home-screen) app on Android the sign-in popup opened a separate Chrome tab the
+  // page could not drive — Chrome just showed its last page. Phones and installed apps sign in by full-page redirect.
+  function preferRedirect() {
+    var n = nav(), ua = String((n && n.userAgent) || '');
+    return isIos() || isStandalone() || /Android|Mobile/i.test(ua);
+  }
   function isStandalone() {
     var n = nav();
     if (n && n.standalone === true) return true;
@@ -263,11 +269,11 @@
     if (isOffline()) return Promise.resolve(fail('OFFLINE'));
     var req = { scopes: SCOPES.slice(), prompt: 'select_account' };
     // No await before loginPopup: keeps the click's user activation for window.open.
-    if (pca && !isIos()) return popupLogin(req);
+    if (pca && !preferRedirect()) return popupLogin(req);
     // Client not built yet (or iOS): after the await the activation may be gone, so a blocked popup falls back to redirect.
     return init().then(function () {
       if (!pca) return fail('NO_LIB');
-      return isIos() ? redirectLogin(req) : popupLogin(req);
+      return preferRedirect() ? redirectLogin(req) : popupLogin(req);
     });
   }
 

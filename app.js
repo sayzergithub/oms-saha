@@ -21,7 +21,7 @@ var MAX_LINES = 2000, MAX_RAW = 8192, HIST_DAYS = 30, MAILTO_MAX = 60000, DUP_MS
 var K = { pair: 'oms.saha.pair', user: 'oms.saha.user', loc: 'oms.saha.loc', snd: 'oms.saha.snd', vib: 'oms.saha.vib', cam: 'oms.saha.cam',
           basket: 'oms.saha.basket', hist: 'oms.saha.hist', catTry: 'oms.saha.cattry',
           cloud: 'oms.saha.cloud', guided: 'oms.saha.guided', adv: 'oms.saha.adv', welcomed: 'oms.saha.welcomed',
-          smode: 'oms.saha.smode', drvTry: 'oms.saha.drvtry', catEtag: 'oms.saha.catetag' };
+          smode: 'oms.saha.smode', drvTry: 'oms.saha.drvtry', drvSend: 'oms.saha.drvsend', catEtag: 'oms.saha.catetag' };
 var CAT_STALE_MS = 12 * 3600000, CAT_RETRY_MS = 30 * 60000, DRV_CAT_STALE_MS = 30 * 60000, DRV_CAT_RETRY_MS = 10 * 60000, SER_GAP_MS = 120;
 var IS_ANDROID = /Android/i.test(navigator.userAgent || '');
 var IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -903,7 +903,9 @@ function renderSendModal(ctx) {
   $('s_how').addEventListener('click', function () { openGuide(ctx); });
   var sd = $('s_drv');
   if (sd) sd.addEventListener('click', function () {
-    driveSignIn(sd, 's_drvmsg').then(function (ok) { if (ok && SEND.ctx === ctx) { closeModal(); driveSend(ctx.b, ctx.hist, null); } });
+    /* phones sign in by full-page redirect: remember the intent so the basket goes out by itself after coming back */
+    if (!ctx.hist) LS.set(K.drvSend, ctx.b && ctx.b.basket ? ctx.b.basket : '1');
+    driveSignIn(sd, 's_drvmsg').then(function (ok) { if (ok && SEND.ctx === ctx) { LS.del(K.drvSend); closeModal(); driveSend(ctx.b, ctx.hist, null); } });
   });
   $('s_more').addEventListener('toggle', function () { ctx.moreOpen = this.open; });
   var m = $('s_mail'); if (m) m.addEventListener('click', function () { setTimeout(function () { used(''); }, 400); });
@@ -1872,9 +1874,21 @@ function driveInit() {
       try { OmsDrive.start(); } catch (e) { }
     }
     driveSync(); driveUi(); catDriveSilent();
+    resumeDriveSend();
     return true;
   }, function (e) { DRV.st = 'error'; DRV.err = (e && e.message) || String(e); driveUi(); return false; });
   return DRV.p;
+}
+/* "OneDrive'a bağlan ve gönder" survived the Microsoft redirect: send the open basket now (once) */
+function resumeDriveSend() {
+  var want = LS.get(K.drvSend);
+  if (!want) return;
+  LS.del(K.drvSend);
+  if (!driveAcc()) return;   /* sign-in cancelled: nothing to resume */
+  var b = S.basket;
+  if (!b || !b.lines || !b.lines.length || (want !== '1' && b.basket !== want)) return;
+  toast('OneDrive\'a bağlandı: ' + driveName(driveAcc()) + ' · sepet gönderiliyor…');
+  setTimeout(function () { driveSend(b, false, null); }, 300);
 }
 /* every place that shows the connection */
 function driveUi() {
