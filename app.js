@@ -322,7 +322,7 @@ function lineInfo(l) {
   if (p.mfr) sub.push(p.mfr);
   if (p.mpn && p.supplierPn && p.supplierPn !== p.mpn) sub.push(p.supplierPn);
   if (p.lot) sub.push('Lot ' + p.lot);
-  if (l.loc) sub.push('Konum ' + l.loc);
+  if (l.loc) sub.push('Raf ' + l.loc);
   if (l.note) sub.push(l.note);
   var qty = l.qty != null ? { t: fmtQty(l.qty), src: 'girildi' } : (p.qty != null && p.qty !== '' ? { t: fmtQty(p.qty), src: 'etiket' } : null);
   var tag = '';
@@ -370,7 +370,7 @@ function smodeUi() {
   }
   $('smodehelp').textContent = !ok ? 'Seri tarama modülü (serialscan.js) yüklenemedi; internete bağlıyken sayfayı yenileyin. Şimdilik Manuel.' :
     m === 'serial' ? 'Kamerayı makaraların önünden sırayla geçirin. Her yeni makara kendiliğinden sepete eklenir, hiçbir şey sorulmaz. Bitince Bitti\'ye basın.' :
-    'Her makara okununca miktar, konum ve not sorulur. Kaydedince tarama kaldığı yerden sürer.';
+    'Her makara okununca miktar, raf no ve not sorulur. Kaydedince tarama kaldığı yerden sürer.';
   $('bcam').lastChild.textContent = m === 'serial' ? 'Seri taramayı başlat' : 'Kamerayı aç ve tara';
 }
 $('smode').addEventListener('change', function (e) {
@@ -504,14 +504,14 @@ function editLine(id, opt) {
     '<input id="e_qty" type="number" inputmode="numeric" pattern="[0-9]*" min="1" step="1" enterkeyhint="next" placeholder="' + esc(ph) + '" value="' + (l.qty != null ? esc(l.qty) : '') + '"' +
       (opt.after && !opt.noFocus && !(p.qty != null && p.qty !== '') ? ' autofocus' : '') + '>' +
     '<p class="help">Kısmen kullanılmış makarada kalan miktarı yazın; etiketteki miktarın yerine geçer.</p></div>' +
-    '<div class="fld"><label for="e_loc">Konum</label><input id="e_loc" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" maxlength="64" enterkeyhint="next" value="' + esc(l.loc) + '"></div>' +
+    '<div class="fld"><label for="e_loc">Raf No <small>(boş bırakılabilir)</small></label><input id="e_loc" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" maxlength="64" enterkeyhint="next" value="' + esc(l.loc) + '"></div>' +
     '<div class="fld"><label for="e_note">Not</label><input id="e_note" type="text" autocomplete="off" maxlength="200" enterkeyhint="done" value="' + esc(l.note) + '"></div>';
   var acts = '<div id="e_msg" class="msg" role="status" aria-live="polite"></div>' +
     '<div class="acts r"><button type="button" class="btn btn-sec" id="e_copy">' + ico('i-copy') + 'Kodu kopyala</button>' +
     '<button type="button" class="btn btn-sec" id="e_cancel">Kapat</button><button type="button" class="btn btn-pri" id="e_save">' + ico('i-save') + (camWait ? 'Kaydet, taramaya dön' : 'Kaydet') + '</button></div>';
   var del = '<div class="danger-row"><button type="button" class="btn btn-danger-ghost" id="e_del">' + ico('i-del') + 'Satırı sil</button></div>';
   /* right after an add (Manuel): the three fields and Kaydet first, label details folded below */
-  var h = opt.after ? '<div class="note ok" style="margin-bottom:12px">' + ico('i-check') + '<div><b>Sepete eklendi.</b> ' + (camWait ? 'Bilgileri girin; kaydedince ya da kapatınca tarama sürer.' : 'Gerekirse miktar, konum ve not girin.') + '</div></div>' + warn + flds + acts +
+  var h = opt.after ? '<div class="note ok" style="margin-bottom:12px">' + ico('i-check') + '<div><b>Sepete eklendi.</b> ' + (camWait ? 'Bilgileri girin; kaydedince ya da kapatınca tarama sürer.' : 'Gerekirse miktar, raf no ve not girin (hepsi boş bırakılabilir).') + '</div></div>' + warn + flds + acts +
       '<details class="more"><summary>' + ico('i-info') + 'Etiket bilgileri' + ico('i-chev', 'chev') + '</summary><div class="inner">' + info + raw + '</div></details>' + del :
     warn + info + flds + raw + acts + del;
   openModal(inf.title, h, opt.onDone || null);
@@ -1810,7 +1810,7 @@ function stockOf(l, p) {
 }
 function stockWhere(part) {
   var a = []; if (part && part.l) a.push(part.l); if (part && part.q != null) a.push(fmtQty(part.q) + ' adet');
-  return a.join(', ') || 'konum yok';
+  return a.join(', ') || 'raf no yok';
 }
 function stockLine(hit) {
   try { if (OmsCatalog.describe) return OmsCatalog.describe(hit); } catch (e) { }

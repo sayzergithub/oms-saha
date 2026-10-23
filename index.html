@@ -578,7 +578,7 @@ body.camcfg #bcfgcam{display:none}
       <div class="row"><input id="code" class="mono" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" enterkeyhint="done" maxlength="8192" placeholder="Barkod metni">
         <button id="badd" class="btn btn-sec" type="button"><svg class="ic" aria-hidden="true"><use href="#i-add"/></svg>Ekle</button></div>
       <p class="help">USB / Bluetooth okuyucu bu alana yazar; Enter ile sepete eklenir.</p></div>
-    <div class="fld"><label for="defloc">Varsayılan konum</label>
+    <div class="fld"><label for="defloc">Raf No (bu sepetteki makaralar için)</label>
       <input id="defloc" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" enterkeyhint="done" maxlength="64" placeholder="ör. A3 (boş bırakılabilir)">
       <p class="help">Bundan sonra eklenen satırlara yazılır.</p></div>
   </div>
@@ -595,7 +595,7 @@ body.camcfg #bcfgcam{display:none}
   <div id="blan" class="lanline" role="status" aria-live="polite" hidden></div>
   <div id="bempty" class="card empty"><svg class="ic" aria-hidden="true"><use href="#n-cart"/></svg><b>Sepet boş</b>Tara sekmesinden makaraları okutun; her okunan etiket buraya bir satır olarak eklenir.
     <div><button id="bgoscan" class="btn btn-sec" type="button"><svg class="ic" aria-hidden="true"><use href="#i-camera"/></svg>Taramaya git</button></div></div>
-  <p id="bhint" class="small" style="margin:0 4px 12px">Bir satıra dokunarak miktar, konum ve not girin. Miktar boşsa etiketteki miktar kullanılır.</p>
+  <p id="bhint" class="small" style="margin:0 4px 12px">Bir satıra dokunarak miktar, raf no ve not girin. Miktar boşsa etiketteki miktar kullanılır.</p>
   <ul id="blist" class="rl" aria-label="Sepetteki satırlar"></ul>
   <div id="sendbar" class="sendbar"><button id="bsend" class="btn btn-pri" type="button"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg><span id="bsendtx">Gönder</span></button><button id="bsendmore" class="btn btn-sec btn-more" type="button" aria-label="Başka yolla gönder" hidden><svg class="ic" aria-hidden="true"><use href="#i-more"/></svg></button></div>
   <div id="bdz" class="dz"><button id="bclear" class="btn btn-danger-ghost" type="button"><svg class="ic" aria-hidden="true"><use href="#i-del"/></svg>Sepeti boşalt</button></div>

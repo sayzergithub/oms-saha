@@ -356,17 +356,17 @@
       // The search row is a direct child of .osv so it stays stuck while the whole list scrolls by.
       '<div class="osv-srch">' + svg('search') +
       '<input class="osv-q" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"' +
-      ' aria-label="Stokta ara" placeholder="Ara: parça kodu, değer, üretici, konum">' +
+      ' aria-label="Stokta ara" placeholder="Ara: parça kodu, değer, üretici, raf no">' +
       '<button type="button" class="osv-clr" aria-label="Aramayı temizle" hidden>' + svg('clear') + '</button></div>' +
       '<div class="osv-bar">' +
       '<div class="osv-chips" role="group" aria-label="Kategori"></div>' +
       '<div class="osv-tools"><p class="osv-meta"><span class="c" role="status" aria-live="polite"></span></p>' +
       '<button type="button" class="osv-btn osv-ref" hidden>' + svg('refresh') + '<span>Yenile</span></button></div>' +
       '<div class="osv-sort" role="group" aria-label="Sıralama"><span>Sırala</span>' +
-      '<button type="button" data-s="mpn">Kod</button><button type="button" data-s="qty">Miktar</button><button type="button" data-s="loc">Konum</button></div>' +
+      '<button type="button" data-s="mpn">Kod</button><button type="button" data-s="qty">Miktar</button><button type="button" data-s="loc">Raf No</button></div>' +
       '</div>' +
       '<div class="osv-msg"></div>' +
-      '<div class="osv-head" aria-hidden="true"><span>Parça kodu</span><span>Değer</span><span>Kılıf</span><span>Üretici</span><span>Konum</span><span>Miktar</span></div>' +
+      '<div class="osv-head" aria-hidden="true"><span>Parça kodu</span><span>Değer</span><span>Kılıf</span><span>Üretici</span><span>Raf No</span><span>Miktar</span></div>' +
       '<div class="osv-empty" hidden></div>' +
       '<div class="osv-list" role="group" aria-label="Stok listesi"></div>' +
       '</div>';
@@ -607,10 +607,10 @@
     if (pkg) det.push(pkg);
     if (f) det.push(f);
     b._d.textContent = det.length ? det.join(' · ') : (str(p.c) || ' ');
-    b._l.textContent = l || 'konum yok';
+    b._l.textContent = l || 'raf no yok';
     b._v.textContent = val; b._k.textContent = pkg; b._f.textContent = f;
     b.setAttribute('aria-label', m + (val ? ', ' + val : '') + (pkg ? ', ' + pkg : '') + (f ? ', ' + f : '') +
-      ', ' + (hasQ ? fmtQty(p.q) + ' adet' : 'miktar bilinmiyor') + (l ? ', konum ' + l : ', konum yok'));
+      ', ' + (hasQ ? fmtQty(p.q) + ' adet' : 'miktar bilinmiyor') + (l ? ', raf ' + l : ', raf no yok'));
   };
 
   View.prototype.paintChips = function () {
@@ -755,7 +755,7 @@
       '<h3 id="osv-dt">' + esc(p.m || '(kodsuz parça)') + '</h3>' +
       (p.f ? '<p class="sub">' + esc(p.f) + '</p>' : '') +
       '<div class="osv-big"><div><small>Miktar</small><strong>' + (hasQ ? fmtQty(p.q) + ' adet' : 'bilinmiyor') + '</strong></div>' +
-      '<div><small>Konum</small><strong>' + (str(p.l).trim() ? esc(p.l) : 'yok') + '</strong></div></div>' +
+      '<div><small>Raf No</small><strong>' + (str(p.l).trim() ? esc(p.l) : 'yok') + '</strong></div></div>' +
       (kv ? '<dl class="osv-kv">' + kv + '</dl>' : '') + other +
       '<div class="osv-acts">' +
       (p.m ? '<button type="button" class="osv-btn" data-a="copy">Parça kodunu kopyala</button>' : '') +
