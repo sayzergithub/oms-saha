@@ -26,7 +26,7 @@
   // Entra app (client) id. Registration: platform "Single-page application", redirect = the page directory,
   // supported accounts = "any organizational directory and personal Microsoft accounts", delegated Files.ReadWrite.
   // Empty -> available() is false and the page hides the OneDrive feature.
-  var CLIENT_ID = '';
+  var CLIENT_ID = '7869b178-008b-462b-a983-7e3f9c58f79d';   // Entra app "OMS Saha" (tenant sayzerhotmail, personal+work, SPA redirects: Pages + PC /saha/)
 
   // ------------------------------------------------------------------ constants
   var AUTHORITY = 'https://login.microsoftonline.com/common';
