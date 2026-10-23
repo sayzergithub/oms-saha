@@ -267,10 +267,18 @@
   }
   function presetObj(w, h, isMax) { return { id: w + 'x' + h, w: w, h: h, mp: mp(w, h), label: (isMax ? 'En yüksek: ' : '') + resLabel(w, h), max: !!isMax }; }
 
-  function fpsPresets(caps) {
+  /** Highest frame rate the camera reports, or null when unknown. Chrome on Android takes it per size from the camera driver
+   *  (VideoCaptureCamera2.getDeviceSupportedFormats: getOutputMinFrameDuration) and Blink keeps the maximum over all sizes
+   *  (ComputeCapabilitiesForVideoSource). Without the MANUAL_SENSOR capability Android reports 0 → Blink a near-zero minimum:
+   *  that means "unknown", not "slow". */
+  function fpsMax(caps) {
     var mx = caps && caps.frameRate && caps.frameRate.max;
+    return isNum(mx) && mx >= 5 ? mx : null;
+  }
+  function fpsPresets(caps) {
+    var mx = fpsMax(caps);
     var out = [];
-    for (var i = 0; i < FPS.length; i++) if (!isNum(mx) || FPS[i] <= mx + 0.5) out.push(FPS[i]);
+    for (var i = 0; i < FPS.length; i++) if (mx === null || FPS[i] <= mx + 0.5) out.push(FPS[i]);
     return out;
   }
 
@@ -889,12 +897,18 @@
       var lf = el('label', 'omscam-lab'); lf.setAttribute('for', id + '-fps'); lf.appendChild(el('span', null, 'Kare hızı')); s2.appendChild(lf);
       var fs = d.createElement('select'); fs.id = id + '-fps'; s2.appendChild(fs);
       var f0 = d.createElement('option'); f0.value = '0'; f0.textContent = 'Otomatik'; fs.appendChild(f0);
-      fpsPresets(caps).forEach(function (f) { var o = d.createElement('option'); o.value = String(f); o.textContent = f + ' kare/s'; fs.appendChild(o); });
+      var fps = fpsPresets(caps), fmx = track ? fpsMax(caps) : null;
+      fps.forEach(function (f) { var o = d.createElement('option'); o.value = String(f); o.textContent = f + ' kare/s'; fs.appendChild(o); });
+      if (r.fps && fps.indexOf(r.fps) < 0) {   // saved earlier (e.g. 60 picked while the preview was closed): show it, do not silently drop it
+        var ofx = d.createElement('option'); ofx.value = String(r.fps); ofx.textContent = r.fps + ' kare/s (kayıtlı · bu kamera vermiyor)'; fs.appendChild(ofx);
+      }
       fs.value = String(r.fps || 0); if (fs.value !== String(r.fps || 0)) fs.value = '0';
       fs.addEventListener('change', function () { setPref(key, { fps: +fs.value || null }); restart('Kare hızı değiştiriliyor…'); });
       // Android picks an auto-exposure fps RANGE closest to the target (VideoCaptureCamera2.getClosestFramerateRange); in dim light the
       // camera lengthens exposure and runs slower than chosen, so the HUD then reads e.g. '30 fps · kamera 60'.
-      if (r.fps >= 50) note(s2, 'Işık azsa kamera pozlamayı uzatıp kare hızını kendiliğinden düşürebilir (ör. 30). Taramada sol üstte "30 fps · kamera 60" görürseniz Işık düğmesini açın ya da Pozlama bölümünde pozlamayı elle kısa süreye alın.');
+      if (fmx !== null && fmx < FPS[FPS.length - 1] - 0.5) note(s2, 'Bu kamera tarayıcıya en fazla ' + Math.round(fmx) + ' kare/s veriyor; bu sınırı telefonun kamera yazılımı belirler. ' +
+        'Daha yüksek kare hızı bu kamerada sayfadan kullanılamaz' + (cams && cams.length > 1 ? ' (başka bir kamera seçip deneyebilirsiniz).' : '.'), !!(r.fps && r.fps > fmx + 0.5));
+      if (r.fps >= 50 && (fmx === null || fmx >= r.fps - 0.5)) note(s2, 'Işık azsa kamera pozlamayı uzatıp kare hızını kendiliğinden düşürebilir (ör. 30). Taramada sol üstte "30 fps · kamera 60" görürseniz Işık düğmesini açın ya da Pozlama bölümünde pozlamayı elle kısa süreye alın.');
       note(s2, 'Yüksek çözünürlük küçük kodları okumayı kolaylaştırır ama telefonu yavaşlatabilir ve pili daha çok kullanır. Telefon istenen değeri vermezse en yakını seçilir; gerçek değer aşağıda görünür.');
       if (track) {
         var cw = caps.width && caps.width.max, chh = caps.height && caps.height.max;
@@ -1335,6 +1349,7 @@
     errorText: errorText,
     resPresets: resPresets,
     fpsPresets: fpsPresets,
+    fpsMax: fpsMax,
     resLabel: resLabel,
     fmtMP: fmtMP,
     hud: hud,
